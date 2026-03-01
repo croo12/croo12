@@ -13,92 +13,117 @@ CA(Cellular Automata) 기반 물 시뮬레이션이 동작 중이나, 실제 강
 - 물이 모든 방향으로 균등하게 퍼져서 얇은 웅덩이가 됨
 - 지형 경사를 무시하여 강처럼 한 방향으로 흐르지 않음
 - 지형이 고정되어 자연적인 강 채널이 형성되지 않음
+- 타일이 type만 가지고 있어 부분 침식 불가
 
-## 개선안
+## 구현 범위
 
-### 1. 경사 기반 분배 (Gradient-Based Spread)
+이번 구현: **타일 구조 확장 + 경사 기반 분배 + 수력침식**
+향후: 모멘텀 (선택적)
 
-**문제**: 수평 분배가 물 레벨 차이만 고려하고 지형 높이를 무시함.
+## 설계
 
-**해결**: 이웃 셀의 "실효 높이"(지형 표면 높이 + 물 레벨)를 기준으로 분배 비율 결정.
+### 1. Tile 구조 확장
 
-```
-현재: 물 레벨만 비교
-  ~2  ~2  ~2   → 레벨 동일, 분배 없음
-  (z=10)(z=8)(z=6)
+현재 타일은 `u8` (TileType만)인데, struct로 확장한다.
 
-개선: 실효 높이(지형+물) 비교
-  ~2  ~2  ~2   → 실효 높이: 12, 10, 8
-  (z=10)(z=8)(z=6)
-  결과: ~1  ~2  ~3  (낮은 쪽으로 더 많이 분배)
-```
-
-**변경 범위**: `cellular.rs`의 Pass 2 (horizontal spread) 수정. 이웃의 지형 표면 높이를 조회하여 분배 가중치에 반영.
-
-**영향**: 물이 골짜기를 따라 집중되어 강 형태에 가까워짐.
-
-**복잡도**: 낮음 — 기존 분배 로직의 비교 기준만 변경.
-
-### 2. 수력침식 (Hydraulic Erosion)
-
-**문제**: 지형이 고정되어 물이 자연적으로 채널을 만들 수 없음.
-
-**해결**: 물 흐름이 있는 곳의 지형을 깎고, 느린 곳에 퇴적하는 침식 시뮬레이션 추가.
-
-**메커니즘**:
-1. **침식(Erosion)**: 물 레벨과 경사에 비례하여 지형 타일을 제거
-2. **운반(Transport)**: 제거된 퇴적물을 물 흐름 방향으로 이동
-3. **퇴적(Deposition)**: 흐름이 느려지면 퇴적물을 지형 타일로 배치
-4. **양성 피드백**: 깎인 채널에 물이 모여 더 깎임 → 자연스러운 강 형성
-
-**데이터 추가**:
-- 각 셀에 `sediment: u8` 필드 추가 (운반 중인 퇴적물량)
-- 또는 별도 sediment 레이어
-
-**변경 범위**:
-- `WaterCell`에 sediment 필드 추가 또는 별도 상태
-- `CellularWaterSimulator::tick`에 erosion/deposition 패스 추가
-- `terrain.rs`의 `generate_terrain`에서 침식 안정화 단계 추가
-
-**영향**: 자연스러운 강 채널, 계곡, 삼각주 형성. 가장 큰 시각적 개선.
-
-**복잡도**: 중간 — 새로운 패스 추가 + 지형 수정 로직.
-
-### 3. 모멘텀/속도 벡터 (Momentum)
-
-**문제**: 물이 방향을 기억하지 못해 관성 없이 매 틱 새로 분배.
-
-**해결**: 각 셀에 속도 벡터 `(vx, vy)` 추가. 이전 틱의 흐름 방향을 다음 틱에 반영.
-
-**데이터 추가**:
-- `WaterCell`에 `vx: i8, vy: i8` 필드
-- 또는 별도 velocity 레이어
-
-**메커니즘**:
-1. 경사에 의한 가속: 낮은 방향으로 속도 증가
-2. 속도에 따른 물 이동: 속도 방향으로 우선 분배
-3. 마찰: 매 틱 속도 감쇠
-
-**영향**: 강의 구불구불한 흐름, 관성에 의한 자연스러운 방향 전환.
-
-**복잡도**: 높음 — 메모리 2배+, 분배 로직 재설계.
-
-## 시너지 및 우선순위
-
-```
-경사 기반 분배 ──→ 수력침식 ──→ 모멘텀
-   (기반)           (핵심)       (디테일)
+```rust
+pub struct Tile {
+    pub tile_type: TileType,
+    pub level: u8,      // 0-8, 타일 충전량 (침식 시 점진적 감소)
+    pub moisture: u8,   // 0-7, 습도 (침식 속도 영향)
+    pub variant: u8,    // 0-3, 시각적 변형
+}
 ```
 
-- **경사 분배 + 수력침식** 조합이 가장 효과적:
-  - 경사 분배로 물이 한 곳에 모임
-  - 침식으로 그 경로가 깊어짐
-  - 깊어진 경로에 물이 더 모임 (양성 피드백)
-- **모멘텀**은 위 두 개 이후에 추가하면 자연스러움 향상
-- 경사 분배 없이 침식만 하면 물이 여전히 균등 분산되어 침식 효과 미미
+**JS 공유**: Rust 내부는 Tile struct, JS에는 렌더링용 packed cache 제공.
+WaterState의 levels_cache와 동일한 패턴.
 
-## 권장 구현 순서
+```
+tiles_cache: Vec<u16>
+팩킹: type(4bit) | level(4bit) | variant(2bit) | reserved(6bit)
+```
 
-1. 경사 기반 분배 (기존 코드 소폭 수정)
-2. 수력침식 (새 패스 추가, 지형 생성 시 적용)
-3. 모멘텀 (선택적, 충분히 자연스러우면 생략 가능)
+**영향 범위**:
+- `tile.rs`: Tile struct + pack/unpack
+- `world.rs`: `Vec<u8>` → `Vec<Tile>`, tiles_cache 추가, sync 메서드
+- `terrain.rs`: 타일 생성 시 level=8로 배치
+- TS `WorldData`: u16 배열 읽기, getTile/getTileLevel 마스킹
+- TS `IsometricCanvas`: drawTile에 이미 level 파라미터 있으므로 최소 변경
+
+### 2. 경사 기반 분배 (Gradient-Based Spread)
+
+수평 분배(Pass 2)에서 이웃의 **가용 깊이(available depth)**를 가중치로 사용.
+
+```rust
+fn available_depth(terrain: &[Tile], water: &[WaterCell],
+                   w: usize, d: usize, nx: usize, ny: usize, z: usize) -> usize {
+    let mut capacity = 0;
+    for dz in 0..=z {
+        let check_z = z - dz;
+        let idx = nx + ny * w + check_z * w * d;
+        if terrain[idx].is_solid() { break; }
+        capacity += 8 - water[idx].level;
+    }
+    capacity
+}
+```
+
+- 아래로 스캔하여 비어있는 공간(고체를 만나면 중단)의 총 남은 용량 계산
+- 가용 깊이가 큰 이웃에게 더 많이 분배
+- 이미 물이 차 있는 방향은 가중치 낮아짐
+- 성능: 매 셀마다 아래 스캔 O(h). 추후 최적화 가능.
+
+### 3. 수력침식 (Hydraulic Erosion)
+
+tick에 새로운 패스 추가 (Pass 3).
+
+**WaterCell 변경**:
+```rust
+pub struct WaterCell {
+    pub level: u8,
+    pub is_source: bool,
+    pub sediment: u8,    // 운반 중인 퇴적물량 (0-8)
+}
+```
+
+**침식 규칙**:
+- 물 level > 0이고 아래 타일이 침식 가능(Dirt, Sand, Grass)이면 침식
+- 침식량: 물 level × 경사(available_depth) 비례, 타일 level에서 차감
+- 타일 level이 0이 되면 Air로 전환
+- Stone은 침식 불가
+
+**퇴적 규칙**:
+- 경사가 완만하거나(available_depth 낮음) 물이 정체되면 퇴적
+- sediment에서 차감, 해당 위치 타일 level 증가 또는 Sand 타일 생성
+
+**지형 생성 적용**:
+- `generate_rivers`에서 수원 배치 후 CA 안정화 시 침식 함께 동작
+- 자연스러운 강 채널 형성
+
+### 4. 최종 tick 순서
+
+```
+Pass 1: Gravity (기존)
+Pass 2: Horizontal spread + 가용깊이 가중치 (수정)
+Pass 3: Erosion & Deposition (신규)
+Pass 4: Source replenishment (기존)
+```
+
+### 5. 변경 파일 요약
+
+| 파일 | 변경 |
+|------|------|
+| `tile.rs` | TileType → Tile struct, pack/unpack |
+| `water/mod.rs` | WaterCell에 sediment 추가 |
+| `water/cellular.rs` | Pass 2 가용깊이 가중치 + Pass 3 침식/퇴적 |
+| `world.rs` | `Vec<u8>` → `Vec<Tile>`, tiles_cache, sync |
+| `terrain.rs` | Tile struct 사용, level=8 배치, 안정화 조정 |
+| `render/ascii.rs` | Tile struct 대응, level 표시 |
+| TS `world-data.ts` | u16 packed cache 읽기, getTileLevel 추가 |
+| TS `IsometricCanvas.tsx` | 타일 level 반영 (최소 변경) |
+| TS `GamePage.tsx` | tiles 배열 Uint16Array로 변경 |
+
+## 모멘텀 (향후)
+
+경사 분배 + 침식으로 충분히 자연스러우면 생략 가능.
+필요 시 WaterCell에 vx/vy 속도 벡터 추가.

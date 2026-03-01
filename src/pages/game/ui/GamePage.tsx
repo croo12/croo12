@@ -4,8 +4,6 @@ import { useEffect, useMemo } from "react";
 import initGameCore, {
 	create_world,
 	tick_water,
-	water_levels_len,
-	water_levels_ptr,
 	world_depth,
 	world_height,
 	world_tiles_len,
@@ -13,7 +11,6 @@ import initGameCore, {
 	world_width,
 } from "../../../../core/build/game_core";
 import { WorldData } from "@/entities/tile";
-import { WaterData } from "@/entities/water";
 import { IsometricCanvas } from "@/features/terrain-renderer";
 import { createWasmLoader } from "@/shared/wasm";
 import { colors, effects, layout, spacing } from "@/shared/theme";
@@ -22,8 +19,8 @@ import { Body, Title } from "@/shared/ui";
 const CANVAS_WIDTH = 800;
 const CANVAS_HEIGHT = 600;
 const WORLD_SIZE = 64;
-const WORLD_HEIGHT = 32;
-const SEED = 42;
+const WORLD_HEIGHT = 128;
+const SEED = 1;
 const TICK_INTERVAL_MS = 200;
 
 const gameCoreQueryOptions = createWasmLoader("game-core", initGameCore);
@@ -42,33 +39,21 @@ export const GamePage: React.FC = () => {
 		const d = world_depth();
 		const h = world_height();
 
-		const tiles = new Uint16Array(wasmOutput.memory.buffer, ptr, len);
+		const tiles = new Uint8Array(wasmOutput.memory.buffer, ptr, len);
 		return new WorldData(w, d, h, tiles);
 	}, [isSuccess, wasmOutput]);
 
-	const waterData = useMemo(() => {
-		if (!isSuccess || !wasmOutput || !world) return null;
-		const ptr = water_levels_ptr();
-		const len = water_levels_len();
-		const levels = new Uint8Array(wasmOutput.memory.buffer, ptr, len);
-		return new WaterData(world.width, world.depth, world.height, levels);
-	}, [isSuccess, wasmOutput, world]);
-
 	useEffect(() => {
-		if (!wasmOutput || !waterData || !world) return;
+		if (!wasmOutput || !world) return;
 		const interval = setInterval(() => {
 			tick_water();
-			const wPtr = water_levels_ptr();
-			const wLen = water_levels_len();
-			const levels = new Uint8Array(wasmOutput.memory.buffer, wPtr, wLen);
-			waterData.updateLevels(levels);
-			const tPtr = world_tiles_ptr();
-			const tLen = world_tiles_len();
-			const tiles = new Uint16Array(wasmOutput.memory.buffer, tPtr, tLen);
+			const ptr = world_tiles_ptr();
+			const len = world_tiles_len();
+			const tiles = new Uint8Array(wasmOutput.memory.buffer, ptr, len);
 			world.updateTiles(tiles);
 		}, TICK_INTERVAL_MS);
 		return () => clearInterval(interval);
-	}, [wasmOutput, waterData, world]);
+	}, [wasmOutput, world]);
 
 	return (
 		<div
@@ -96,7 +81,6 @@ export const GamePage: React.FC = () => {
 				{world ? (
 					<IsometricCanvas
 						world={world}
-						waterData={waterData}
 						width={CANVAS_WIDTH}
 						height={CANVAS_HEIGHT}
 					/>

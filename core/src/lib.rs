@@ -1,97 +1,100 @@
+mod render;
 mod terrain;
 mod tile;
 mod water;
-mod render;
 mod world;
 
 use std::cell::UnsafeCell;
 use wasm_bindgen::prelude::*;
-use water::cellular::CellularWaterSimulator;
 use world::World;
 
-type GameWorld = World<CellularWaterSimulator>;
-
-struct WorldHolder(UnsafeCell<Option<GameWorld>>);
-
-// SAFETY: Wasm is single-threaded, no concurrent access possible.
+struct WorldHolder(UnsafeCell<Option<World>>);
 unsafe impl Sync for WorldHolder {}
 
 static WORLD: WorldHolder = WorldHolder(UnsafeCell::new(None));
 
-fn with_world<T>(f: impl FnOnce(&GameWorld) -> T, default: T) -> T {
-	unsafe { (*WORLD.0.get()).as_ref().map_or(default, f) }
+fn with_world<T>(f: impl FnOnce(&World) -> T) -> T {
+	unsafe {
+		let world = &*WORLD.0.get();
+		f(world.as_ref().expect("World not initialized"))
+	}
 }
 
-fn with_world_mut<T>(f: impl FnOnce(&mut GameWorld) -> T, default: T) -> T {
-	unsafe { (*WORLD.0.get()).as_mut().map_or(default, f) }
+fn with_world_mut<T>(f: impl FnOnce(&mut World) -> T) -> T {
+	unsafe {
+		let world = &mut *WORLD.0.get();
+		f(world.as_mut().expect("World not initialized"))
+	}
 }
 
 #[wasm_bindgen]
 pub fn greet() -> String {
-	String::from("Hello from game-core!")
+	"Hello from game_core!".to_string()
 }
 
 #[wasm_bindgen]
 pub fn create_world(width: usize, depth: usize, height: usize, seed: u32) {
-	let simulator = CellularWaterSimulator::new();
-	let mut w = World::new(width, depth, height, simulator);
-	terrain::generate_terrain(&mut w, seed);
-	w.sync_tiles_cache();
+	let mut world = World::new(width, depth, height);
+	terrain::generate_terrain(&mut world, seed);
+	world.sync_tiles_cache();
 	unsafe {
-		*WORLD.0.get() = Some(w);
+		*WORLD.0.get() = Some(world);
 	}
-}
-
-// --- Tiles ---
-#[wasm_bindgen]
-pub fn world_tiles_ptr() -> *const u16 {
-	with_world(|w| w.tiles_cache_ptr(), std::ptr::null())
-}
-
-#[wasm_bindgen]
-pub fn world_tiles_len() -> usize {
-	with_world(|w| w.tiles_cache_len(), 0)
 }
 
 #[wasm_bindgen]
 pub fn world_width() -> usize {
-	with_world(|w| w.width(), 0)
+	with_world(|w| w.width())
 }
 
 #[wasm_bindgen]
 pub fn world_depth() -> usize {
-	with_world(|w| w.depth(), 0)
+	with_world(|w| w.depth())
 }
 
 #[wasm_bindgen]
 pub fn world_height() -> usize {
-	with_world(|w| w.height(), 0)
+	with_world(|w| w.height())
 }
 
-// --- Water ---
+#[wasm_bindgen]
+pub fn world_tiles_ptr() -> *const u8 {
+	with_world(|w| w.tiles_cache_ptr())
+}
+
+#[wasm_bindgen]
+pub fn world_tiles_len() -> usize {
+	with_world(|w| w.tiles_cache_len())
+}
+
 #[wasm_bindgen]
 pub fn tick_water() {
-	with_world_mut(|w| w.tick_water(), ());
+	with_world_mut(|w| water::tick(w));
 }
 
 #[wasm_bindgen]
-pub fn place_water(x: usize, y: usize, z: usize, level: u8) {
-	with_world_mut(|w| w.place_water(x, y, z, level), ());
+pub fn place_water(x: usize, y: usize, z: usize) {
+	with_world_mut(|w| {
+		w.set(x, y, z, tile::Tile::water_default());
+		w.sync_tiles_cache();
+	});
+}
+
+#[wasm_bindgen]
+pub fn place_water_source(x: usize, y: usize, z: usize) {
+	with_world_mut(|w| {
+		w.set(x, y, z, tile::Tile::water_source());
+		w.add_source(x, y, z);
+		w.sync_tiles_cache();
+	});
 }
 
 #[wasm_bindgen]
 pub fn remove_water(x: usize, y: usize, z: usize) {
-	with_world_mut(|w| w.remove_water(x, y, z), ());
-}
-
-#[wasm_bindgen]
-pub fn water_levels_ptr() -> *const u8 {
-	with_world(|w| w.water_levels_ptr(), std::ptr::null())
-}
-
-#[wasm_bindgen]
-pub fn water_levels_len() -> usize {
-	with_world(|w| w.water_levels_len(), 0)
+	with_world_mut(|w| {
+		w.set(x, y, z, tile::Tile::Air);
+		w.sync_tiles_cache();
+	});
 }
 
 #[cfg(test)]
@@ -100,6 +103,6 @@ mod tests {
 
 	#[test]
 	fn greet_returns_message() {
-		assert_eq!(greet(), "Hello from game-core!");
+		assert_eq!(greet(), "Hello from game_core!");
 	}
 }

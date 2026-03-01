@@ -1,6 +1,8 @@
 pub mod erosion;
 pub mod evaporation;
 pub mod flow;
+pub mod mass_erosion;
+pub mod mass_evaporation;
 pub mod source;
 pub mod spread;
 

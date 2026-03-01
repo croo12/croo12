@@ -17,6 +17,53 @@ interface IsometricCanvasProps {
 	height: number;
 }
 
+const WATER_FACES = {
+	top: "rgba(64, 164, 223, 1)",
+	left: "rgba(48, 130, 190, 1)",
+	right: "rgba(38, 110, 165, 1)",
+};
+
+const drawWaterTile = (
+	ctx: CanvasRenderingContext2D,
+	sx: number,
+	sy: number,
+	alpha: number,
+): void => {
+	const hw = TILE_WIDTH / 2;
+	const hh = TILE_HEIGHT / 2;
+
+	ctx.globalAlpha = alpha;
+
+	ctx.fillStyle = WATER_FACES.top;
+	ctx.beginPath();
+	ctx.moveTo(sx, sy - hh);
+	ctx.lineTo(sx + hw, sy);
+	ctx.lineTo(sx, sy + hh);
+	ctx.lineTo(sx - hw, sy);
+	ctx.closePath();
+	ctx.fill();
+
+	ctx.fillStyle = WATER_FACES.left;
+	ctx.beginPath();
+	ctx.moveTo(sx - hw, sy);
+	ctx.lineTo(sx, sy + hh);
+	ctx.lineTo(sx, sy + hh + TILE_DEPTH);
+	ctx.lineTo(sx - hw, sy + TILE_DEPTH);
+	ctx.closePath();
+	ctx.fill();
+
+	ctx.fillStyle = WATER_FACES.right;
+	ctx.beginPath();
+	ctx.moveTo(sx + hw, sy);
+	ctx.lineTo(sx, sy + hh);
+	ctx.lineTo(sx, sy + hh + TILE_DEPTH);
+	ctx.lineTo(sx + hw, sy + TILE_DEPTH);
+	ctx.closePath();
+	ctx.fill();
+
+	ctx.globalAlpha = 1.0;
+};
+
 const drawTile = (
 	ctx: CanvasRenderingContext2D,
 	sx: number,
@@ -104,12 +151,18 @@ export const IsometricCanvas: React.FC<IsometricCanvasProps> = ({
 			let accum = 0;
 			for (let z = top; z >= 0; z--) {
 				const tt = world.getTile(cx, cy, z);
-				if (tt === TileType.Air) continue;
+				const waterMass = world.getWaterMass(cx, cy, z);
+				if (tt === TileType.Air && waterMass === 0) continue;
 				accum += getTileOpacity(tt);
+				if (waterMass > 0) accum += (waterMass / 255) * 0.3;
 				if (accum >= 1.0) {
-					// Include one more non-air tile below (partially visible)
 					for (let zz = z - 1; zz >= 0; zz--) {
-						if (world.getTile(cx, cy, zz) !== TileType.Air) return zz;
+						if (
+							world.getTile(cx, cy, zz) !== TileType.Air ||
+							world.getWaterMass(cx, cy, zz) > 0
+						) {
+							return zz;
+						}
 					}
 					return z;
 				}
@@ -134,11 +187,20 @@ export const IsometricCanvas: React.FC<IsometricCanvasProps> = ({
 				// Draw bottom-to-top so upper tiles paint over lower ones
 				for (let z = renderFromZ; z <= topZ; z++) {
 					const tileType = world.getTile(x, y, z);
-					if (tileType === TileType.Air) continue;
 
 					const sx = toScreenX(x, y);
 					const sy = toScreenY(x, y, z);
-					drawTile(ctx, sx, sy, tileType, getTileOpacity(tileType));
+
+					if (tileType !== TileType.Air) {
+						drawTile(ctx, sx, sy, tileType, getTileOpacity(tileType));
+					}
+
+					// Draw water overlay
+					const waterMass = world.getWaterMass(x, y, z);
+					if (waterMass > 0) {
+						const waterAlpha = 0.3 + (waterMass / 255) * 0.4;
+						drawWaterTile(ctx, sx, sy, waterAlpha);
+					}
 				}
 			}
 		}

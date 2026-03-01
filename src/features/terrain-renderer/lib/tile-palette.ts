@@ -22,11 +22,6 @@ const palette: Record<number, TileFaces> = {
 		left: "#808080",
 		right: "#6a6a6a",
 	},
-	[TileType.Water]: {
-		top: "rgba(64, 164, 223, 0.7)",
-		left: "rgba(48, 130, 190, 0.7)",
-		right: "rgba(38, 110, 165, 0.7)",
-	},
 	[TileType.Sand]: {
 		top: "#e8d678",
 		left: "#c8b860",

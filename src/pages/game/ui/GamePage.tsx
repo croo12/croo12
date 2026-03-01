@@ -13,6 +13,8 @@ import initGameCore, {
 	world_height,
 	world_tiles_len,
 	world_tiles_ptr,
+	world_water_len,
+	world_water_ptr,
 	world_width,
 } from "../../../../core/build/game_core";
 
@@ -40,7 +42,10 @@ export const GamePage: React.FC = () => {
 		const h = world_height();
 
 		const tiles = new Uint8Array(wasmOutput.memory.buffer, ptr, len);
-		return new WorldData(w, d, h, tiles);
+		const waterPtr = world_water_ptr();
+		const waterLen = world_water_len();
+		const water = new Uint8Array(wasmOutput.memory.buffer, waterPtr, waterLen);
+		return new WorldData(w, d, h, tiles, water);
 	}, [isSuccess, wasmOutput]);
 
 	useEffect(() => {
@@ -50,7 +55,14 @@ export const GamePage: React.FC = () => {
 			const ptr = world_tiles_ptr();
 			const len = world_tiles_len();
 			const tiles = new Uint8Array(wasmOutput.memory.buffer, ptr, len);
-			world.updateTiles(tiles);
+			const waterPtr = world_water_ptr();
+			const waterLen = world_water_len();
+			const water = new Uint8Array(
+				wasmOutput.memory.buffer,
+				waterPtr,
+				waterLen,
+			);
+			world.updateTiles(tiles, water);
 		}, TICK_INTERVAL_MS);
 		return () => clearInterval(interval);
 	}, [wasmOutput, world]);

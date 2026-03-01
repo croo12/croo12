@@ -1,6 +1,4 @@
 export {
-	FlowDir,
-	type FlowDirValue,
 	getTileOpacity,
 	TileType,
 	type TileTypeValue,

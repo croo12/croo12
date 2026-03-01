@@ -8,6 +8,12 @@ pub struct World {
 	height: usize,
 	tiles: Vec<Tile>,
 	tiles_cache: Vec<u8>,
+	// Water layer fields (mass-based cellular automata)
+	pub(crate) water_mass: Vec<u8>,
+	pub(crate) water_sediment: Vec<u8>,
+	pub(crate) mass_delta: Vec<i16>,
+	pub(crate) sediment_delta: Vec<i16>,
+	pub(crate) water_outflow: Vec<u16>,
 	sources: Vec<(usize, usize, usize)>,
 }
 
@@ -20,6 +26,11 @@ impl World {
 			height,
 			tiles: vec![Tile::Air; size],
 			tiles_cache: vec![0u8; size],
+			water_mass: vec![0u8; size],
+			water_sediment: vec![0u8; size],
+			mass_delta: vec![0i16; size],
+			sediment_delta: vec![0i16; size],
+			water_outflow: vec![0u16; size],
 			sources: Vec::new(),
 		}
 	}
@@ -90,6 +101,71 @@ impl World {
 	pub fn clear_sources(&mut self) {
 		self.sources.clear();
 	}
+
+	// --- Water layer accessors ---
+
+	pub fn water_mass(&self, x: usize, y: usize, z: usize) -> u8 {
+		self.water_mass[self.index(x, y, z)]
+	}
+
+	pub fn set_water_mass(&mut self, x: usize, y: usize, z: usize, mass: u8) {
+		let idx = self.index(x, y, z);
+		self.water_mass[idx] = mass;
+	}
+
+	pub fn water_mass_ptr(&self) -> *const u8 {
+		self.water_mass.as_ptr()
+	}
+
+	pub fn water_mass_len(&self) -> usize {
+		self.water_mass.len()
+	}
+
+	pub fn water_sediment(&self, x: usize, y: usize, z: usize) -> u8 {
+		self.water_sediment[self.index(x, y, z)]
+	}
+
+	pub fn set_water_sediment(&mut self, x: usize, y: usize, z: usize, sed: u8) {
+		let idx = self.index(x, y, z);
+		self.water_sediment[idx] = sed;
+	}
+
+	// --- Delta / outflow helpers ---
+
+	pub fn mass_delta_ref(&self) -> &[i16] {
+		&self.mass_delta
+	}
+
+	pub fn record_flow(&mut self, from: usize, to: usize, amount: u16, sed_amount: i16) {
+		self.mass_delta[from] -= amount as i16;
+		self.mass_delta[to] += amount as i16;
+		self.water_outflow[from] += amount;
+		if sed_amount != 0 {
+			self.sediment_delta[from] -= sed_amount;
+			self.sediment_delta[to] += sed_amount;
+		}
+	}
+
+	pub fn apply_water_deltas(&mut self) {
+		for i in 0..self.water_mass.len() {
+			if self.mass_delta[i] != 0 {
+				let new_mass = (self.water_mass[i] as i16 + self.mass_delta[i]).clamp(0, 255);
+				self.water_mass[i] = new_mass as u8;
+				self.mass_delta[i] = 0;
+			}
+			if self.sediment_delta[i] != 0 {
+				let new_sed =
+					(self.water_sediment[i] as i16 + self.sediment_delta[i]).clamp(0, 255);
+				self.water_sediment[i] = new_sed as u8;
+				self.sediment_delta[i] = 0;
+			}
+			self.water_outflow[i] = 0;
+		}
+	}
+
+	pub fn water_outflow(&self, idx: usize) -> u16 {
+		self.water_outflow[idx]
+	}
 }
 
 #[cfg(test)]
@@ -147,5 +223,35 @@ mod tests {
 		let mut world = World::new(4, 4, 8);
 		world.tiles_mut()[0] = Tile::Stone;
 		assert_eq!(world.get(0, 0, 0), Tile::Stone);
+	}
+
+	#[test]
+	fn water_mass_set_and_get() {
+		let mut w = World::new(4, 4, 4);
+		w.set_water_mass(1, 1, 1, 100);
+		assert_eq!(w.water_mass(1, 1, 1), 100);
+		assert_eq!(w.water_mass(0, 0, 0), 0);
+	}
+
+	#[test]
+	fn record_flow_updates_deltas() {
+		let mut w = World::new(4, 4, 4);
+		w.set_water_mass(0, 0, 0, 200);
+		let from = w.index(0, 0, 0);
+		let to = w.index(1, 0, 0);
+		w.record_flow(from, to, 50, 0);
+		assert_eq!(w.mass_delta_ref()[from], -50);
+		assert_eq!(w.mass_delta_ref()[to], 50);
+	}
+
+	#[test]
+	fn apply_deltas_clamps_and_resets() {
+		let mut w = World::new(4, 4, 4);
+		w.set_water_mass(0, 0, 0, 200);
+		let idx = w.index(0, 0, 0);
+		w.mass_delta[idx] = 100; // would exceed 255
+		w.apply_water_deltas();
+		assert_eq!(w.water_mass(0, 0, 0), 255); // clamped
+		assert_eq!(w.mass_delta_ref()[idx], 0); // reset
 	}
 }

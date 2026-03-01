@@ -36,6 +36,7 @@ pub fn create_world(width: usize, depth: usize, height: usize, seed: u32) {
 	let simulator = CellularWaterSimulator::new();
 	let mut w = World::new(width, depth, height, simulator);
 	terrain::generate_terrain(&mut w, seed);
+	w.sync_tiles_cache();
 	unsafe {
 		*WORLD.0.get() = Some(w);
 	}
@@ -43,13 +44,13 @@ pub fn create_world(width: usize, depth: usize, height: usize, seed: u32) {
 
 // --- Tiles ---
 #[wasm_bindgen]
-pub fn world_tiles_ptr() -> *const u8 {
-	with_world(|w| w.tiles_ptr(), std::ptr::null())
+pub fn world_tiles_ptr() -> *const u16 {
+	with_world(|w| w.tiles_cache_ptr(), std::ptr::null())
 }
 
 #[wasm_bindgen]
 pub fn world_tiles_len() -> usize {
-	with_world(|w| w.tiles_len(), 0)
+	with_world(|w| w.tiles_cache_len(), 0)
 }
 
 #[wasm_bindgen]

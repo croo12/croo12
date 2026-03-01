@@ -103,8 +103,10 @@ impl WaterState {
 	}
 }
 
+use crate::tile::Tile;
+
 pub trait WaterSimulator {
-	fn tick(&mut self, state: &mut WaterState, terrain: &[u8]);
+	fn tick(&mut self, state: &mut WaterState, terrain: &[Tile]);
 	fn place_water(&mut self, state: &mut WaterState, x: usize, y: usize, z: usize, level: u8);
 	fn remove_water(&mut self, state: &mut WaterState, x: usize, y: usize, z: usize);
 }

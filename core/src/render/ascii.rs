@@ -1,5 +1,5 @@
 use crate::render::WorldRenderer;
-use crate::tile::TileType;
+use crate::tile::{Tile, TileType};
 use crate::water::{WaterCell, WaterSimulator};
 use crate::world::World;
 
@@ -63,16 +63,16 @@ impl WorldRenderer for AsciiRenderer {
 	}
 }
 
-fn format_cell(tile: u8, water: WaterCell) -> String {
+fn format_cell(tile: Tile, water: WaterCell) -> String {
 	if water.level > 0 {
 		let prefix = if water.is_source { '*' } else { '~' };
 		return format!("{}{} ", prefix, water.level);
 	}
-	match tile {
-		t if t == TileType::Grass as u8 => " G ".to_string(),
-		t if t == TileType::Dirt as u8 => " D ".to_string(),
-		t if t == TileType::Stone as u8 => " # ".to_string(),
-		t if t == TileType::Sand as u8 => " S ".to_string(),
+	match tile.tile_type {
+		TileType::Grass => " G ".to_string(),
+		TileType::Dirt => " D ".to_string(),
+		TileType::Stone => " # ".to_string(),
+		TileType::Sand => " S ".to_string(),
 		_ => " . ".to_string(),
 	}
 }
@@ -83,17 +83,17 @@ mod tests {
 
 	#[test]
 	fn format_cell_air() {
-		assert_eq!(format_cell(TileType::Air as u8, WaterCell::EMPTY), " . ");
+		assert_eq!(format_cell(Tile::new(TileType::Air), WaterCell::EMPTY), " . ");
 	}
 
 	#[test]
 	fn format_cell_stone() {
-		assert_eq!(format_cell(TileType::Stone as u8, WaterCell::EMPTY), " # ");
+		assert_eq!(format_cell(Tile::new(TileType::Stone), WaterCell::EMPTY), " # ");
 	}
 
 	#[test]
 	fn format_cell_grass() {
-		assert_eq!(format_cell(TileType::Grass as u8, WaterCell::EMPTY), " G ");
+		assert_eq!(format_cell(Tile::new(TileType::Grass), WaterCell::EMPTY), " G ");
 	}
 
 	#[test]
@@ -102,7 +102,7 @@ mod tests {
 			level: 4,
 			is_source: false,
 		};
-		assert_eq!(format_cell(TileType::Air as u8, cell), "~4 ");
+		assert_eq!(format_cell(Tile::new(TileType::Air), cell), "~4 ");
 	}
 
 	#[test]
@@ -111,7 +111,7 @@ mod tests {
 			level: 8,
 			is_source: true,
 		};
-		assert_eq!(format_cell(TileType::Air as u8, cell), "*8 ");
+		assert_eq!(format_cell(Tile::new(TileType::Air), cell), "*8 ");
 	}
 
 	#[test]
@@ -120,7 +120,7 @@ mod tests {
 			level: 3,
 			is_source: false,
 		};
-		assert_eq!(format_cell(TileType::Stone as u8, cell), "~3 ");
+		assert_eq!(format_cell(Tile::new(TileType::Stone), cell), "~3 ");
 	}
 
 	use crate::render::WorldRenderer;

@@ -115,7 +115,7 @@ mod tests {
 			for x in 0..32 {
 				for z in 0..=WATER_LEVEL {
 					if world.water().get(x, y, z).level > 0
-						|| world.get_tile(x, y, z) == TileType::Water as u8
+						|| world.get_tile(x, y, z).tile_type == TileType::Water
 					{
 						has_water = true;
 					}

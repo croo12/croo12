@@ -1,5 +1,5 @@
 use super::{WaterCell, WaterSimulator, WaterState};
-use crate::tile::TileType;
+use crate::tile::Tile;
 
 pub struct CellularWaterSimulator;
 
@@ -8,14 +8,13 @@ impl CellularWaterSimulator {
 		Self
 	}
 
-	fn is_solid(terrain: &[u8], idx: usize) -> bool {
-		let tile = terrain[idx];
-		tile != TileType::Air as u8 && tile != TileType::Water as u8
+	fn is_solid(terrain: &[Tile], idx: usize) -> bool {
+		terrain[idx].is_solid()
 	}
 }
 
 impl WaterSimulator for CellularWaterSimulator {
-	fn tick(&mut self, state: &mut WaterState, terrain: &[u8]) {
+	fn tick(&mut self, state: &mut WaterState, terrain: &[Tile]) {
 		let w = state.width();
 		let d = state.depth();
 		let h = state.height();
@@ -172,12 +171,12 @@ mod tests {
 	use super::*;
 	use crate::tile::TileType;
 
-	fn make_terrain(w: usize, d: usize, h: usize) -> Vec<u8> {
-		vec![TileType::Air as u8; w * d * h]
+	fn make_terrain(w: usize, d: usize, h: usize) -> Vec<Tile> {
+		vec![Tile::new(TileType::Air); w * d * h]
 	}
 
 	fn set_terrain(
-		terrain: &mut [u8],
+		terrain: &mut [Tile],
 		w: usize,
 		d: usize,
 		x: usize,
@@ -185,7 +184,7 @@ mod tests {
 		z: usize,
 		tile: TileType,
 	) {
-		terrain[x + y * w + z * w * d] = tile as u8;
+		terrain[x + y * w + z * w * d] = Tile::new(tile);
 	}
 
 	#[test]

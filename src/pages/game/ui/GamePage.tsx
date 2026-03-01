@@ -42,7 +42,7 @@ export const GamePage: React.FC = () => {
 		const d = world_depth();
 		const h = world_height();
 
-		const tiles = new Uint8Array(wasmOutput.memory.buffer, ptr, len);
+		const tiles = new Uint16Array(wasmOutput.memory.buffer, ptr, len);
 		return new WorldData(w, d, h, tiles);
 	}, [isSuccess, wasmOutput]);
 

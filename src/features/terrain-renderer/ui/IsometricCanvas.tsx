@@ -130,7 +130,7 @@ export const IsometricCanvas: React.FC<IsometricCanvasProps> = ({
 
 					// 고체 타일
 					if (tile !== TileType.Air && tile !== TileType.Water) {
-						drawTile(ctx, sx, sy, tile, 8);
+						drawTile(ctx, sx, sy, tile, world.getTileLevel(x, y, z));
 					}
 
 					// 물 렌더링 (Water 타일이거나 water level이 있는 경우)

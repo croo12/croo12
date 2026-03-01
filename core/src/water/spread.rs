@@ -1,34 +1,30 @@
 use crate::tile::{FlowDir, Tile};
 use crate::world::World;
 
-/// Scan downward from (x, y, z-1) counting consecutive Air cells.
-fn scan_depth(world: &World, x: usize, y: usize, z: usize) -> usize {
-	let mut depth = 0;
-	let mut cz = z;
-	while cz > 0 {
-		cz -= 1;
-		if world.get(x, y, cz).is_air() {
-			depth += 1;
-		} else {
-			break;
-		}
-	}
-	depth
+/// Check if a horizontal neighbor is a valid spread target.
+/// Returns true if the neighbor at (nx, ny, z) is Air.
+fn can_spread_to(world: &World, nx: usize, ny: usize, z: usize) -> bool {
+	world.get(nx, ny, z).is_air()
 }
 
-/// Pick best horizontal direction based on current direction + scan_depth.
-fn pick_direction(
+/// Check if neighbor has air below (water can fall there).
+fn has_drop(world: &World, nx: usize, ny: usize, z: usize) -> bool {
+	z > 0 && world.get(nx, ny, z - 1).is_air()
+}
+
+/// Pick best horizontal neighbor for spreading water.
+/// Priority: neighbors where water can fall > flat neighbors.
+/// Among equals, prefer current direction (momentum).
+fn pick_target(
 	world: &World,
 	x: usize,
 	y: usize,
 	z: usize,
 	current_dir: FlowDir,
-	velocity: u8,
 ) -> Option<(FlowDir, usize, usize)> {
 	let w = world.width();
 	let d = world.depth();
 
-	// Neighbors: (dir, nx, ny)
 	let neighbors: [(FlowDir, Option<(usize, usize)>); 4] = [
 		(
 			FlowDir::North,
@@ -48,42 +44,28 @@ fn pick_direction(
 		),
 	];
 
-	// Classify by priority: forward, perpendicular, backward
-	let opposite = current_dir.opposite();
-	let perps = current_dir.perpendiculars();
-
+	// Collect valid targets with their properties
 	struct Candidate {
 		dir: FlowDir,
 		nx: usize,
 		ny: usize,
-		depth: usize,
-		priority: u8, // 0=forward, 1=perp, 2=backward
+		drop: bool,       // has air below
+		is_forward: bool,  // matches current direction
 	}
 
 	let mut candidates: Vec<Candidate> = Vec::new();
 
 	for (dir, pos) in &neighbors {
 		if let Some((nx, ny)) = pos {
-			let target = world.get(*nx, *ny, z);
-			if !target.is_air() {
+			if !can_spread_to(world, *nx, *ny, z) {
 				continue;
 			}
-			let depth = scan_depth(world, *nx, *ny, z);
-			let priority = if *dir == current_dir {
-				0
-			} else if *dir == opposite {
-				2
-			} else if perps.contains(dir) {
-				1
-			} else {
-				1
-			};
 			candidates.push(Candidate {
 				dir: *dir,
 				nx: *nx,
 				ny: *ny,
-				depth,
-				priority,
+				drop: has_drop(world, *nx, *ny, z),
+				is_forward: *dir == current_dir,
 			});
 		}
 	}
@@ -92,15 +74,32 @@ fn pick_direction(
 		return None;
 	}
 
-	// High velocity: only forward
-	if velocity >= 4 {
-		if let Some(c) = candidates.iter().find(|c| c.priority == 0) {
-			return Some((c.dir, c.nx, c.ny));
+	match current_dir {
+		FlowDir::Down => {
+			// Just landed from falling: spread to any neighbor, prefer drops
+			candidates.sort_by(|a, b| b.drop.cmp(&a.drop));
+		}
+		FlowDir::None => {
+			// Stagnant: only spread toward drops
+			candidates.retain(|c| c.drop);
+			if candidates.is_empty() {
+				return None;
+			}
+		}
+		_ => {
+			// Has horizontal momentum: prefer forward, then drops
+			candidates.sort_by(|a, b| {
+				b.is_forward
+					.cmp(&a.is_forward)
+					.then(b.drop.cmp(&a.drop))
+			});
+			let best = &candidates[0];
+			// If no forward and no drop, stop
+			if !best.is_forward && !best.drop {
+				return None;
+			}
 		}
 	}
-
-	// Sort: priority asc, then depth desc
-	candidates.sort_by(|a, b| a.priority.cmp(&b.priority).then(b.depth.cmp(&a.depth)));
 
 	let best = &candidates[0];
 	Some((best.dir, best.nx, best.ny))
@@ -112,7 +111,17 @@ pub fn pass_spread(world: &mut World) {
 	let h = world.height();
 
 	// Collect moves first (snapshot approach)
-	let mut moves: Vec<(usize, usize, usize, usize, usize, usize, Tile)> = Vec::new();
+	struct Move {
+		ox: usize,
+		oy: usize,
+		oz: usize,
+		nx: usize,
+		ny: usize,
+		nz: usize,
+		new_water: Tile,
+	}
+
+	let mut moves: Vec<Move> = Vec::new();
 
 	for z in (0..h).rev() {
 		for y in 0..d {
@@ -130,33 +139,60 @@ pub fn pass_spread(world: &mut World) {
 						continue; // gravity handles this
 					}
 
-					// Determine direction for newly landed water
-					let dir = if direction == FlowDir::Down || direction == FlowDir::None {
-						FlowDir::None // will be recalculated by pick_direction
-					} else {
-						direction
-					};
+					let has_water_above =
+						z + 1 < h && world.get(x, y, z + 1).is_water();
 
-					if let Some((new_dir, nx, ny)) =
-						pick_direction(world, x, y, z, dir, velocity)
-					{
-						let new_vel = if velocity > 0 { velocity - 1 } else { 0 }.max(1);
-						let new_water = Tile::Water {
-							is_source: false,
-							sediment,
-							velocity: new_vel,
-							direction: new_dir,
-						};
-						moves.push((x, y, z, nx, ny, z, new_water));
-					} else {
-						// Stagnant: reset velocity
+					// Non-source water needs pressure (water above) to spread.
+					// A single water block on the ground stays put.
+					if !is_source && !has_water_above {
+						// No pressure — become stagnant
 						if velocity > 0 || direction != FlowDir::None {
 							world.set(
 								x,
 								y,
 								z,
 								Tile::Water {
-									is_source,
+									is_source: false,
+									sediment,
+									velocity: 0,
+									direction: FlowDir::None,
+								},
+							);
+						}
+						continue;
+					}
+
+					// Source or pressured water: spread to any available neighbor
+					let dir = FlowDir::Down;
+
+					if let Some((new_dir, nx, ny)) =
+						pick_target(world, x, y, z, dir)
+					{
+						let new_vel = if velocity > 1 { velocity - 1 } else { 1 };
+						let new_water = Tile::Water {
+							is_source: false,
+							sediment,
+							velocity: new_vel,
+							direction: new_dir,
+						};
+						moves.push(Move {
+							ox: x,
+							oy: y,
+							oz: z,
+							nx,
+							ny,
+							nz: z,
+							new_water,
+						});
+					} else if !is_source {
+						// Stagnant: reset velocity and direction
+						if velocity > 0 || direction != FlowDir::None {
+							world.set(
+								x,
+								y,
+								z,
+								Tile::Water {
+									is_source: false,
 									sediment,
 									velocity: 0,
 									direction: FlowDir::None,
@@ -170,16 +206,16 @@ pub fn pass_spread(world: &mut World) {
 	}
 
 	// Apply moves
-	for (ox, oy, oz, nx, ny, nz, new_water) in moves {
+	for m in moves {
 		// Only move if target is still air and source is still water
-		if world.get(nx, ny, nz).is_air() && world.get(ox, oy, oz).is_water() {
-			let src = world.get(ox, oy, oz);
+		if world.get(m.nx, m.ny, m.nz).is_air() && world.get(m.ox, m.oy, m.oz).is_water() {
+			let src = world.get(m.ox, m.oy, m.oz);
 			if let Tile::Water { is_source, .. } = src {
-				world.set(nx, ny, nz, new_water);
+				world.set(m.nx, m.ny, m.nz, m.new_water);
 				if is_source {
-					world.set(ox, oy, oz, Tile::water_source());
+					world.set(m.ox, m.oy, m.oz, Tile::water_source());
 				} else {
-					world.set(ox, oy, oz, Tile::Air);
+					world.set(m.ox, m.oy, m.oz, Tile::Air);
 				}
 			}
 		}
@@ -193,81 +229,46 @@ mod tests {
 	use crate::world::World;
 
 	#[test]
-	fn water_spreads_to_lower_neighbor() {
-		// Ground at z=0, water at z=1 (on ground), air neighbor at z=1 with no ground
+	fn single_water_block_stays_put() {
+		// A single water block without pressure should not spread
 		let mut world = World::new(4, 4, 4);
-		world.set(1, 1, 0, Tile::Stone); // ground under water
-		world.set(1, 1, 1, Tile::water_default());
-		// neighbor (2,1) has no ground, so scan_depth is deeper
-		pass_spread(&mut world);
-		// Water should move to the neighbor with deepest scan_depth
-		assert!(world.get(1, 1, 1).is_air() || world.get(1, 1, 1).is_water());
-	}
-
-	#[test]
-	fn water_continues_in_direction() {
-		let mut world = World::new(8, 4, 4);
-		// Flat ground
-		for x in 0..8 {
-			world.set(x, 1, 0, Tile::Stone);
-		}
-		world.set(
-			3,
-			1,
-			1,
-			Tile::Water {
-				is_source: false,
-				sediment: 0,
-				velocity: 3,
-				direction: FlowDir::East,
-			},
-		);
-		pass_spread(&mut world);
-		// Should continue East (priority direction)
-		assert!(world.get(4, 1, 1).is_water());
-		assert!(world.get(3, 1, 1).is_air());
-	}
-
-	#[test]
-	fn high_velocity_only_goes_forward() {
-		let mut world = World::new(8, 8, 4);
-		for x in 0..8 {
-			for y in 0..8 {
-				world.set(x, y, 0, Tile::Stone);
-			}
-		}
-		world.set(
-			3,
-			3,
-			1,
-			Tile::Water {
-				is_source: false,
-				sediment: 0,
-				velocity: 5,
-				direction: FlowDir::East,
-			},
-		);
-		pass_spread(&mut world);
-		assert!(world.get(4, 3, 1).is_water()); // moved East
-		assert!(world.get(3, 3, 1).is_air());
-	}
-
-	#[test]
-	fn stagnant_water_stays() {
-		let mut world = World::new(4, 4, 4);
-		// Surrounded by solid
-		for x in 0..4 {
-			for y in 0..4 {
-				world.set(x, y, 0, Tile::Stone);
-			}
-		}
-		world.set(0, 1, 1, Tile::Stone);
-		world.set(2, 1, 1, Tile::Stone);
-		world.set(1, 0, 1, Tile::Stone);
-		world.set(1, 2, 1, Tile::Stone);
-		world.set(1, 1, 0, Tile::Stone); // floor
+		world.set(1, 1, 0, Tile::Stone);
 		world.set(1, 1, 1, Tile::water_default());
 		pass_spread(&mut world);
-		assert!(world.get(1, 1, 1).is_water()); // no move
+		assert!(world.get(1, 1, 1).is_water());
+	}
+
+	#[test]
+	fn pressured_water_spreads() {
+		// 2+ stacked water blocks: bottom one spreads due to pressure
+		let mut world = World::new(4, 4, 4);
+		world.set(1, 1, 0, Tile::Stone);
+		world.set(1, 1, 1, Tile::water_default()); // bottom
+		world.set(1, 1, 2, Tile::water_default()); // top (pressure)
+		pass_spread(&mut world);
+		// Bottom water should have spread to a neighbor
+		let has_neighbor_water = world.get(0, 1, 1).is_water()
+			|| world.get(2, 1, 1).is_water()
+			|| world.get(1, 0, 1).is_water()
+			|| world.get(1, 2, 1).is_water();
+		assert!(has_neighbor_water);
+	}
+
+	#[test]
+	fn source_water_emits_to_neighbor() {
+		// Source always emits regardless of pressure
+		let mut world = World::new(4, 4, 4);
+		world.set(1, 1, 0, Tile::Stone);
+		world.set(1, 1, 1, Tile::water_source());
+		pass_spread(&mut world);
+		assert!(world.get(1, 1, 1).is_water());
+		if let Tile::Water { is_source, .. } = world.get(1, 1, 1) {
+			assert!(is_source);
+		}
+		let has_neighbor_water = world.get(0, 1, 1).is_water()
+			|| world.get(2, 1, 1).is_water()
+			|| world.get(1, 0, 1).is_water()
+			|| world.get(1, 2, 1).is_water();
+		assert!(has_neighbor_water);
 	}
 }

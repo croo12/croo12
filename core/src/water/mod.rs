@@ -1,12 +1,11 @@
 pub mod erosion;
-pub mod gravity;
 pub mod source;
 pub mod spread;
 
 use crate::world::World;
 
 pub fn tick(world: &mut World) {
-	gravity::pass_gravity(world);
+	crate::world::gravity::pass_gravity(world);
 	spread::pass_spread(world);
 	erosion::pass_erosion(world);
 	let sources: Vec<_> = world.sources().to_vec();

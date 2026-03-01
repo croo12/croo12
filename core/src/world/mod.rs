@@ -1,3 +1,5 @@
+pub mod gravity;
+
 use crate::tile::Tile;
 
 pub struct World {

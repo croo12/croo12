@@ -25,24 +25,6 @@ impl FlowDir {
 		self as u8
 	}
 
-	pub fn opposite(self) -> Self {
-		match self {
-			Self::None => Self::None,
-			Self::Down => Self::None, // no "Up" direction
-			Self::North => Self::South,
-			Self::South => Self::North,
-			Self::East => Self::West,
-			Self::West => Self::East,
-		}
-	}
-
-	pub fn perpendiculars(self) -> [Self; 2] {
-		match self {
-			Self::North | Self::South => [Self::East, Self::West],
-			Self::East | Self::West => [Self::North, Self::South],
-			_ => [Self::North, Self::East],
-		}
-	}
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

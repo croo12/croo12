@@ -1,5 +1,7 @@
+use crate::render::WorldRenderer;
 use crate::tile::TileType;
-use crate::water::WaterCell;
+use crate::water::{WaterCell, WaterSimulator};
+use crate::world::World;
 
 pub enum SliceAxis {
 	TopDown(usize),
@@ -20,6 +22,28 @@ impl AsciiRenderer {
 	pub fn side_view(y: usize) -> Self {
 		Self {
 			slice: SliceAxis::Side(y),
+		}
+	}
+
+	fn render_top_down(&self, world: &World<impl WaterSimulator>, z: usize) -> String {
+		let w = world.width();
+		let d = world.depth();
+		let mut out = format!("z={} ({}x{}):\n", z, w, d);
+		for y in 0..d {
+			for x in 0..w {
+				out.push_str(&format_cell(world.get_tile(x, y, z), world.water().get(x, y, z)));
+			}
+			out.push('\n');
+		}
+		out
+	}
+}
+
+impl WorldRenderer for AsciiRenderer {
+	fn render(&self, world: &World<impl WaterSimulator>) -> String {
+		match self.slice {
+			SliceAxis::TopDown(z) => self.render_top_down(world, z),
+			SliceAxis::Side(_y) => String::new(),
 		}
 	}
 }
@@ -82,5 +106,30 @@ mod tests {
 			is_source: false,
 		};
 		assert_eq!(format_cell(TileType::Stone as u8, cell), "~3 ");
+	}
+
+	use crate::render::WorldRenderer;
+	use crate::water::cellular::CellularWaterSimulator;
+	use crate::world::World;
+
+	#[test]
+	fn render_top_down_empty_world() {
+		let world = World::new(3, 3, 2, CellularWaterSimulator::new());
+		let renderer = AsciiRenderer::top_down(0);
+		let output = renderer.render(&world);
+		let expected = "z=0 (3x3):\n .  .  . \n .  .  . \n .  .  . \n";
+		assert_eq!(output, expected);
+	}
+
+	#[test]
+	fn render_top_down_with_tiles_and_water() {
+		let mut world = World::new(3, 3, 2, CellularWaterSimulator::new());
+		world.set_tile(0, 0, 0, TileType::Stone);
+		world.set_tile(1, 0, 0, TileType::Grass);
+		world.place_water(2, 0, 0, 5);
+		let renderer = AsciiRenderer::top_down(0);
+		let output = renderer.render(&world);
+		let expected = "z=0 (3x3):\n #  G ~5 \n .  .  . \n .  .  . \n";
+		assert_eq!(output, expected);
 	}
 }

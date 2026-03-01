@@ -1,6 +1,6 @@
 import type React from "react";
 import { useCallback, useEffect, useRef } from "react";
-import { TileType, getTileOpacity, type WorldData } from "@/entities/tile";
+import { TileType, type WorldData } from "@/entities/tile";
 import {
 	TILE_DEPTH,
 	TILE_HEIGHT,
@@ -101,19 +101,21 @@ export const IsometricCanvas: React.FC<IsometricCanvasProps> = ({
 
 		for (let y = 0; y < d; y++) {
 			for (let x = 0; x < w; x++) {
-				// Visibility scan: top-down per column
-				let accumulated = 0.0;
-				for (let z = world.getTopZ(x, y); z >= 0 && accumulated < 1.0; z--) {
+				const topZ = world.getTopZ(x, y);
+
+				// Side faces are exposed down to the shorter front neighbor's height
+				const rightTopZ = x + 1 < w ? world.getTopZ(x + 1, y) : 0;
+				const frontTopZ = y + 1 < d ? world.getTopZ(x, y + 1) : 0;
+				const minVisibleZ = Math.min(rightTopZ, frontTopZ, topZ);
+
+				// Draw bottom-to-top so upper tiles paint over lower ones
+				for (let z = minVisibleZ; z <= topZ; z++) {
 					const tileType = world.getTile(x, y, z);
 					if (tileType === TileType.Air) continue;
 
-					const opacity = getTileOpacity(tileType);
-					const alpha = Math.max(0, 1.0 - accumulated);
 					const sx = toScreenX(x, y);
 					const sy = toScreenY(x, y, z);
-
-					drawTile(ctx, sx, sy, tileType, alpha);
-					accumulated += opacity;
+					drawTile(ctx, sx, sy, tileType, 1.0);
 				}
 			}
 		}

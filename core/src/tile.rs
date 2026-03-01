@@ -77,6 +77,10 @@ impl Tile {
 		matches!(self, Self::Air)
 	}
 
+	pub fn falls(&self) -> bool {
+		matches!(self, Self::Grass | Self::Dirt | Self::Sand | Self::Water { .. })
+	}
+
 	/// Opacity for visibility scoring. 10 = fully opaque, 0 = transparent.
 	pub fn opacity(&self) -> u8 {
 		match self {

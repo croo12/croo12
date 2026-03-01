@@ -55,16 +55,20 @@ export const GamePage: React.FC = () => {
 	}, [isSuccess, wasmOutput, world]);
 
 	useEffect(() => {
-		if (!wasmOutput || !waterData) return;
+		if (!wasmOutput || !waterData || !world) return;
 		const interval = setInterval(() => {
 			tick_water();
-			const ptr = water_levels_ptr();
-			const len = water_levels_len();
-			const levels = new Uint8Array(wasmOutput.memory.buffer, ptr, len);
+			const wPtr = water_levels_ptr();
+			const wLen = water_levels_len();
+			const levels = new Uint8Array(wasmOutput.memory.buffer, wPtr, wLen);
 			waterData.updateLevels(levels);
+			const tPtr = world_tiles_ptr();
+			const tLen = world_tiles_len();
+			const tiles = new Uint16Array(wasmOutput.memory.buffer, tPtr, tLen);
+			world.updateTiles(tiles);
 		}, TICK_INTERVAL_MS);
 		return () => clearInterval(interval);
-	}, [wasmOutput, waterData]);
+	}, [wasmOutput, waterData, world]);
 
 	return (
 		<div

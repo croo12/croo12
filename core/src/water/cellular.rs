@@ -66,6 +66,17 @@ impl WaterSimulator for CellularWaterSimulator {
 					let transfer = src_level.min(space);
 					cells[below_idx].level += transfer;
 					cells[idx].level = cells[idx].level.saturating_sub(transfer);
+
+					// Transfer sediment proportionally with water
+					if cells[idx].sediment > 0 {
+						let sed_transfer = ((cells[idx].sediment as u16 * transfer as u16)
+							/ src_level.max(1) as u16)
+							.min(cells[idx].sediment as u16) as u8;
+						cells[below_idx].sediment =
+							cells[below_idx].sediment.saturating_add(sed_transfer);
+						cells[idx].sediment =
+							cells[idx].sediment.saturating_sub(sed_transfer);
+					}
 				}
 			}
 		}
@@ -74,6 +85,7 @@ impl WaterSimulator for CellularWaterSimulator {
 		// 아래가 비어있으면 수평 분배 스킵 (중력 우선)
 		let after_gravity = cells.clone();
 		let mut deltas = vec![0i16; w * d * h];
+		let mut sed_deltas = vec![0i16; w * d * h];
 
 		for z in 0..h {
 			for y in 0..d {
@@ -114,7 +126,9 @@ impl WaterSimulator for CellularWaterSimulator {
 						}
 						let n_level = after_gravity[nidx].level;
 						if n_level < my_level {
-							let weight = Self::available_depth(terrain, &after_gravity, w, d, nx, ny, z);
+							let weight = Self::available_depth(
+								terrain, &after_gravity, w, d, nx, ny, z,
+							);
 							let weight_u8 = weight.min(u8::MAX as usize) as u8;
 							lower_indices[lower_count as usize] = (nidx, weight_u8);
 							total_weight += weight;
@@ -127,7 +141,6 @@ impl WaterSimulator for CellularWaterSimulator {
 					}
 
 					// 총 유출량: 기존 level 차이 기반 로직 유지
-					// Compute total_diff for existing total_give formula
 					let mut total_diff: u16 = 0;
 					for i in 0..lower_count as usize {
 						let (nidx, _) = lower_indices[i];
@@ -144,22 +157,49 @@ impl WaterSimulator for CellularWaterSimulator {
 
 					deltas[idx] -= total_give as i16;
 
+					// Sediment outflow proportional to water outflow
+					let my_sed = after_gravity[idx].sediment;
+					let sed_give = if my_level > 0 && my_sed > 0 {
+						((my_sed as u16 * total_give as u16) / my_level as u16)
+							.min(my_sed as u16) as u8
+					} else {
+						0
+					};
+					if sed_give > 0 {
+						sed_deltas[idx] -= sed_give as i16;
+					}
+
 					// available_depth 비례로 분배
 					let mut distributed: u8 = 0;
+					let mut sed_distributed: u8 = 0;
 					for i in 0..lower_count as usize {
 						let (nidx, weight) = lower_indices[i];
 						let share = if total_weight > 0 {
-							((total_give as usize * weight as usize) / total_weight).min(u8::MAX as usize) as u8
+							((total_give as usize * weight as usize) / total_weight)
+								.min(u8::MAX as usize) as u8
 						} else {
 							0
 						};
 						let share = share.min(total_give - distributed);
 						deltas[nidx] += share as i16;
 						distributed += share;
+
+						// Distribute sediment proportionally to water share
+						if sed_give > 0 && total_give > 0 {
+							let sed_share =
+								((sed_give as u16 * share as u16) / total_give as u16) as u8;
+							let sed_share = sed_share.min(sed_give - sed_distributed);
+							sed_deltas[nidx] += sed_share as i16;
+							sed_distributed += sed_share;
+						}
 					}
-					// 나머지 1단위는 첫 이웃에게
+					// 나머지는 첫 이웃에게
 					if distributed < total_give {
 						deltas[lower_indices[0].0] += (total_give - distributed) as i16;
+					}
+					if sed_distributed < sed_give {
+						sed_deltas[lower_indices[0].0] +=
+							(sed_give - sed_distributed) as i16;
 					}
 				}
 			}
@@ -169,6 +209,9 @@ impl WaterSimulator for CellularWaterSimulator {
 		for (i, cell) in cells.iter_mut().enumerate() {
 			let new_level = (after_gravity[i].level as i16 + deltas[i]).clamp(0, 8) as u8;
 			cell.level = new_level;
+			let new_sed =
+				(after_gravity[i].sediment as i16 + sed_deltas[i]).clamp(0, 8) as u8;
+			cell.sediment = new_sed;
 		}
 
 		// Pass 3: Erosion & Deposition
@@ -327,9 +370,7 @@ mod tests {
 		);
 		sim.tick(&mut state, &mut terrain);
 
-		// 고체 아래로 물이 빠지지 않아야 함
 		assert_eq!(state.get(1, 1, 0).level, 0, "고체 블록에는 물이 없어야 함");
-		// z=1에 물이 남아 있어야 함 (수평 분배로 줄어들 수 있음)
 		assert!(state.get(1, 1, 1).level > 0, "고체 위에 물이 남아야 함");
 	}
 
@@ -340,7 +381,6 @@ mod tests {
 		let mut terrain = make_terrain(w, d, h);
 		let mut sim = CellularWaterSimulator::new();
 
-		// 바닥을 전부 고체로
 		for y in 0..d {
 			for x in 0..w {
 				set_terrain(&mut terrain, w, d, x, y, 0, TileType::Stone);
@@ -359,7 +399,6 @@ mod tests {
 
 		sim.tick(&mut state, &mut terrain);
 
-		// 중앙 level 감소, 이웃 중 일부에 물 분배
 		let center = state.get(2, 2, 1).level;
 		let neighbors_total: u8 = [(1, 2), (3, 2), (2, 1), (2, 3)]
 			.iter()
@@ -404,7 +443,6 @@ mod tests {
 		let mut state = WaterState::new(w, d, h);
 		let mut terrain = make_terrain(w, d, h);
 
-		// Staircase: x=0 floor=3, x=1 floor=2, x=2 floor=1, x=3 floor=0, x=4 floor=0
 		for x in 0..w {
 			let floor_z = if x <= 2 { 3 - x } else { 0 };
 			for z in 0..=floor_z {
@@ -412,21 +450,34 @@ mod tests {
 			}
 		}
 
-		// Water at top of stairs
-		state.set(0, 0, 4, WaterCell { level: 8, is_source: false, sediment: 0 });
+		state.set(
+			0,
+			0,
+			4,
+			WaterCell {
+				level: 8,
+				is_source: false,
+				sediment: 0,
+			},
+		);
 
 		let mut sim = CellularWaterSimulator::new();
 		for _ in 0..10 {
 			sim.tick(&mut state, &mut terrain);
 		}
 
-		let low_water: u8 = (3..5).map(|x| {
-			(0..h).map(|z| state.get(x, 0, z).level).sum::<u8>()
-		}).sum();
-		let high_water: u8 = (0..2).map(|x| {
-			(0..h).map(|z| state.get(x, 0, z).level).sum::<u8>()
-		}).sum();
-		assert!(low_water > high_water, "water should pool at lower terrain: low={}, high={}", low_water, high_water);
+		let low_water: u8 = (3..5)
+			.map(|x| (0..h).map(|z| state.get(x, 0, z).level).sum::<u8>())
+			.sum();
+		let high_water: u8 = (0..2)
+			.map(|x| (0..h).map(|z| state.get(x, 0, z).level).sum::<u8>())
+			.sum();
+		assert!(
+			low_water > high_water,
+			"water should pool at lower terrain: low={}, high={}",
+			low_water,
+			high_water
+		);
 	}
 
 	#[test]
@@ -440,13 +491,26 @@ mod tests {
 				set_terrain(&mut terrain, w, d, x, y, 0, TileType::Dirt);
 			}
 		}
-		state.set(1, 1, 1, WaterCell { level: 8, is_source: false, sediment: 0 });
+		state.set(
+			1,
+			1,
+			1,
+			WaterCell {
+				level: 8,
+				is_source: false,
+				sediment: 0,
+			},
+		);
 
 		let mut sim = CellularWaterSimulator::new();
 		sim.tick(&mut state, &mut terrain);
 
 		let dirt_tile = terrain[1 + 1 * w + 0 * w * d];
-		assert!(dirt_tile.level < 8, "erosion should reduce level: {}", dirt_tile.level);
+		assert!(
+			dirt_tile.level < 8,
+			"erosion should reduce level: {}",
+			dirt_tile.level
+		);
 	}
 
 	#[test]
@@ -456,12 +520,49 @@ mod tests {
 		let mut terrain = make_terrain(w, d, h);
 
 		set_terrain(&mut terrain, w, d, 1, 1, 0, TileType::Stone);
-		state.set(1, 1, 1, WaterCell { level: 8, is_source: false, sediment: 0 });
+		state.set(
+			1,
+			1,
+			1,
+			WaterCell {
+				level: 8,
+				is_source: false,
+				sediment: 0,
+			},
+		);
 
 		let mut sim = CellularWaterSimulator::new();
 		sim.tick(&mut state, &mut terrain);
 
 		assert_eq!(terrain[1 + 1 * w].tile_type, TileType::Stone);
 		assert_eq!(terrain[1 + 1 * w].level, 8, "Stone must not erode");
+	}
+
+	#[test]
+	fn sediment_travels_with_water_gravity() {
+		let (w, d, h) = (3, 3, 4);
+		let mut state = WaterState::new(w, d, h);
+		let mut terrain = make_terrain(w, d, h);
+		let mut sim = CellularWaterSimulator::new();
+
+		// Water with sediment at z=3
+		state.set(
+			1,
+			1,
+			3,
+			WaterCell {
+				level: 8,
+				is_source: false,
+				sediment: 4,
+			},
+		);
+		sim.tick(&mut state, &mut terrain);
+
+		// Sediment should have moved down with water
+		assert_eq!(state.get(1, 1, 3).sediment, 0, "sediment should leave origin");
+		assert!(
+			state.get(1, 1, 2).sediment > 0,
+			"sediment should arrive at destination"
+		);
 	}
 }

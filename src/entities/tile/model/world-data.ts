@@ -10,7 +10,7 @@ export class WorldData {
 	readonly width: number;
 	readonly depth: number;
 	readonly height: number;
-	private readonly tiles: Uint16Array;
+	private tiles: Uint16Array;
 
 	constructor(
 		width: number,
@@ -34,6 +34,10 @@ export class WorldData {
 		const packed =
 			this.tiles[x + y * this.width + z * this.width * this.depth];
 		return (packed >> LEVEL_SHIFT) & LEVEL_MASK;
+	}
+
+	updateTiles(tiles: Uint16Array): void {
+		this.tiles = new Uint16Array(tiles);
 	}
 
 	getTopZ(x: number, y: number): number {

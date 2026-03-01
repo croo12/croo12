@@ -169,5 +169,4 @@ mod tests {
 		let expected = "y=0 (x->, z^, 3x2):\n .  . ~6 \n #  #  . \n";
 		assert_eq!(output, expected);
 	}
-
 }

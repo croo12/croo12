@@ -12,6 +12,7 @@
 		"preview": "vite preview",
 		"lint": "biome lint .",
 		"format": "biome format --write .",
+		"biome:check": "biome check .",
 		"test": "vitest run",
 		"test:watch": "vitest"
 	},

@@ -1,6 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
 import type React from "react";
 import { useEffect, useMemo } from "react";
+import { WorldData } from "@/entities/tile";
+import { IsometricCanvas } from "@/features/terrain-renderer";
+import { colors, effects, layout, spacing } from "@/shared/theme";
+import { Body, Title } from "@/shared/ui";
+import { createWasmLoader } from "@/shared/wasm";
 import initGameCore, {
 	create_world,
 	tick_water,
@@ -10,17 +15,12 @@ import initGameCore, {
 	world_tiles_ptr,
 	world_width,
 } from "../../../../core/build/game_core";
-import { WorldData } from "@/entities/tile";
-import { IsometricCanvas } from "@/features/terrain-renderer";
-import { createWasmLoader } from "@/shared/wasm";
-import { colors, effects, layout, spacing } from "@/shared/theme";
-import { Body, Title } from "@/shared/ui";
 
 const CANVAS_WIDTH = 800;
 const CANVAS_HEIGHT = 600;
 const WORLD_SIZE = 64;
 const WORLD_HEIGHT = 128;
-const SEED = 1;
+const SEED = 77;
 const TICK_INTERVAL_MS = 200;
 
 const gameCoreQueryOptions = createWasmLoader("game-core", initGameCore);

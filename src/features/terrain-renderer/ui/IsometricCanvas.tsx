@@ -1,6 +1,6 @@
 import type React from "react";
 import { useCallback, useEffect, useRef } from "react";
-import { TileType, type WorldData } from "@/entities/tile";
+import { getTileOpacity, TileType, type WorldData } from "@/entities/tile";
 import {
 	TILE_DEPTH,
 	TILE_HEIGHT,
@@ -99,23 +99,46 @@ export const IsometricCanvas: React.FC<IsometricCanvasProps> = ({
 		const w = world.width;
 		const d = world.depth;
 
+		const getOpacityCutZ = (cx: number, cy: number): number => {
+			const top = world.getTopZ(cx, cy);
+			let accum = 0;
+			for (let z = top; z >= 0; z--) {
+				const tt = world.getTile(cx, cy, z);
+				if (tt === TileType.Air) continue;
+				accum += getTileOpacity(tt);
+				if (accum >= 1.0) {
+					// Include one more non-air tile below (partially visible)
+					for (let zz = z - 1; zz >= 0; zz--) {
+						if (world.getTile(cx, cy, zz) !== TileType.Air) return zz;
+					}
+					return z;
+				}
+			}
+			return 0;
+		};
+
 		for (let y = 0; y < d; y++) {
 			for (let x = 0; x < w; x++) {
 				const topZ = world.getTopZ(x, y);
 
-				// Side faces are exposed down to the shorter front neighbor's height
-				const rightTopZ = x + 1 < w ? world.getTopZ(x + 1, y) : 0;
-				const frontTopZ = y + 1 < d ? world.getTopZ(x, y + 1) : 0;
-				const minVisibleZ = Math.min(rightTopZ, frontTopZ, topZ);
+				// Neighbor opacity cutoff (not raw topZ) for side face visibility
+				const rightCutZ = x + 1 < w ? getOpacityCutZ(x + 1, y) : 0;
+				const frontCutZ = y + 1 < d ? getOpacityCutZ(x, y + 1) : 0;
+				const neighborMinZ = Math.min(rightCutZ, frontCutZ, topZ);
+
+				// Own column opacity cutoff
+				const opacityCutZ = getOpacityCutZ(x, y);
+
+				const renderFromZ = Math.min(opacityCutZ, neighborMinZ);
 
 				// Draw bottom-to-top so upper tiles paint over lower ones
-				for (let z = minVisibleZ; z <= topZ; z++) {
+				for (let z = renderFromZ; z <= topZ; z++) {
 					const tileType = world.getTile(x, y, z);
 					if (tileType === TileType.Air) continue;
 
 					const sx = toScreenX(x, y);
 					const sy = toScreenY(x, y, z);
-					drawTile(ctx, sx, sy, tileType, 1.0);
+					drawTile(ctx, sx, sy, tileType, getTileOpacity(tileType));
 				}
 			}
 		}

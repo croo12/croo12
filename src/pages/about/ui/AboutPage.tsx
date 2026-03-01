@@ -45,7 +45,12 @@ const TypedLine: React.FC<TypedLineProps> = ({
 	showCursor,
 	onComplete,
 }) => {
-	const { displayedText } = useTypewriter({ text, speed, isActive, onComplete });
+	const { displayedText } = useTypewriter({
+		text,
+		speed,
+		isActive,
+		onComplete,
+	});
 
 	return (
 		<>
@@ -75,7 +80,13 @@ export const AboutPage: React.FC = () => {
 			}}
 		>
 			<Title>
-				<TypedLine text="About" speed={80} isActive={step >= 0} showCursor={step === 0} onComplete={next} />
+				<TypedLine
+					text="About"
+					speed={80}
+					isActive={step >= 0}
+					showCursor={step === 0}
+					onComplete={next}
+				/>
 			</Title>
 
 			{step >= 1 && (

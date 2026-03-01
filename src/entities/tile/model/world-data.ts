@@ -12,12 +12,7 @@ export class WorldData {
 	readonly height: number;
 	private tiles: Uint8Array;
 
-	constructor(
-		width: number,
-		depth: number,
-		height: number,
-		tiles: Uint8Array,
-	) {
+	constructor(width: number, depth: number, height: number, tiles: Uint8Array) {
 		this.width = width;
 		this.depth = depth;
 		this.height = height;

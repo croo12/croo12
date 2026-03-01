@@ -1,4 +1,4 @@
-use crate::tile::{FlowDir, Tile};
+use crate::tile::Tile;
 use super::World;
 
 pub fn pass_gravity(world: &mut World) {
@@ -21,36 +21,9 @@ pub fn pass_gravity(world: &mut World) {
 					target_z -= 1;
 				}
 
-				// Place tile at target, handle source water specially
-				match tile {
-					Tile::Water {
-						is_source,
-						sediment,
-						..
-					} => {
-						world.set(
-							x,
-							y,
-							target_z,
-							Tile::Water {
-								is_source: false,
-								sediment,
-								velocity: 0,
-								direction: FlowDir::Down,
-							},
-						);
-						if is_source {
-							world.set(x, y, z, Tile::water_source());
-						} else {
-							world.set(x, y, z, Tile::Air);
-						}
-					}
-					_ => {
-						// Solid tile (Grass, Dirt, Sand): move directly
-						world.set(x, y, target_z, tile);
-						world.set(x, y, z, Tile::Air);
-					}
-				}
+				// Move tile to target
+				world.set(x, y, target_z, tile);
+				world.set(x, y, z, Tile::Air);
 			}
 		}
 	}
@@ -59,52 +32,8 @@ pub fn pass_gravity(world: &mut World) {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::tile::{FlowDir, Tile};
+	use crate::tile::Tile;
 	use super::World;
-
-	#[test]
-	fn water_falls_to_ground() {
-		let mut world = World::new(4, 4, 8);
-		world.set(0, 0, 0, Tile::Stone);
-		world.set(0, 0, 5, Tile::water_default());
-		pass_gravity(&mut world);
-		assert!(world.get(0, 0, 1).is_water());
-		assert!(world.get(0, 0, 5).is_air());
-	}
-
-	#[test]
-	fn water_stops_on_solid() {
-		let mut world = World::new(4, 4, 8);
-		world.set(0, 0, 0, Tile::Stone);
-		world.set(0, 0, 1, Tile::water_default());
-		pass_gravity(&mut world);
-		assert!(world.get(0, 0, 1).is_water());
-	}
-
-	#[test]
-	fn water_stops_on_water() {
-		let mut world = World::new(4, 4, 8);
-		world.set(0, 0, 0, Tile::Stone);
-		world.set(0, 0, 1, Tile::water_default());
-		world.set(0, 0, 5, Tile::water_default());
-		pass_gravity(&mut world);
-		assert!(world.get(0, 0, 2).is_water());
-		assert!(world.get(0, 0, 1).is_water());
-		assert!(world.get(0, 0, 5).is_air());
-	}
-
-	#[test]
-	fn source_stays_and_water_falls() {
-		let mut world = World::new(4, 4, 8);
-		world.set(0, 0, 0, Tile::Stone);
-		world.set(0, 0, 5, Tile::water_source());
-		pass_gravity(&mut world);
-		assert!(world.get(0, 0, 5).is_water());
-		assert!(world.get(0, 0, 1).is_water());
-		if let Tile::Water { is_source, .. } = world.get(0, 0, 5) {
-			assert!(is_source);
-		}
-	}
 
 	#[test]
 	fn dirt_falls_when_unsupported() {

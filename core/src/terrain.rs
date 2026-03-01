@@ -77,7 +77,7 @@ pub fn generate_terrain(world: &mut World, seed: u32) {
 		let idx = (i * step + seed as usize) % candidates.len();
 		let (sx, sy, sz) = candidates[idx];
 		if sz < h {
-			world.set(sx, sy, sz, Tile::water_source());
+			world.set_water_mass(sx, sy, sz, 255);
 			world.add_source(sx, sy, sz);
 		}
 	}

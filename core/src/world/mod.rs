@@ -171,7 +171,7 @@ impl World {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::tile::{FlowDir, Tile};
+	use crate::tile::Tile;
 
 	#[test]
 	fn world_new_creates_air_grid() {
@@ -194,21 +194,10 @@ mod tests {
 	fn world_sync_cache_packs_correctly() {
 		let mut world = World::new(4, 4, 8);
 		world.set(0, 0, 0, Tile::Grass);
-		world.set(
-			1,
-			0,
-			0,
-			Tile::Water {
-				is_source: true,
-				sediment: 0,
-				velocity: 0,
-				direction: FlowDir::East,
-			},
-		);
+		world.set(1, 0, 0, Tile::Stone);
 		world.sync_tiles_cache();
 		assert_eq!(world.tiles_cache()[0], Tile::Grass.pack());
-		assert_eq!(world.tiles_cache()[1] & 0x07, 5); // Water type
-		assert_eq!((world.tiles_cache()[1] >> 6) & 1, 1); // is_source
+		assert_eq!(world.tiles_cache()[1], Tile::Stone.pack());
 	}
 
 	#[test]

@@ -1,6 +1,7 @@
 mod terrain;
 mod tile;
 mod water;
+mod render;
 mod world;
 
 use std::cell::UnsafeCell;

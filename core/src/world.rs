@@ -85,8 +85,9 @@ impl<S: WaterSimulator> World<S> {
 	}
 
 	pub fn tick_water(&mut self) {
-		self.simulator.tick(&mut self.water, &self.tiles);
+		self.simulator.tick(&mut self.water, &mut self.tiles);
 		self.water.sync_levels_cache();
+		self.sync_tiles_cache();
 	}
 
 	pub fn place_water(&mut self, x: usize, y: usize, z: usize, level: u8) {
@@ -108,6 +109,7 @@ impl<S: WaterSimulator> World<S> {
 			crate::water::WaterCell {
 				level,
 				is_source: true,
+				sediment: 0,
 			},
 		);
 		self.water.sync_levels_cache();

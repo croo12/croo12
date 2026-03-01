@@ -101,6 +101,7 @@ mod tests {
 		let cell = WaterCell {
 			level: 4,
 			is_source: false,
+			sediment: 0,
 		};
 		assert_eq!(format_cell(Tile::new(TileType::Air), cell), "~4 ");
 	}
@@ -110,6 +111,7 @@ mod tests {
 		let cell = WaterCell {
 			level: 8,
 			is_source: true,
+			sediment: 0,
 		};
 		assert_eq!(format_cell(Tile::new(TileType::Air), cell), "*8 ");
 	}
@@ -119,6 +121,7 @@ mod tests {
 		let cell = WaterCell {
 			level: 3,
 			is_source: false,
+			sediment: 0,
 		};
 		assert_eq!(format_cell(Tile::new(TileType::Stone), cell), "~3 ");
 	}

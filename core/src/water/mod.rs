@@ -4,12 +4,14 @@ pub mod cellular;
 pub struct WaterCell {
 	pub level: u8,
 	pub is_source: bool,
+	pub sediment: u8,
 }
 
 impl WaterCell {
 	pub const EMPTY: Self = Self {
 		level: 0,
 		is_source: false,
+		sediment: 0,
 	};
 
 	pub fn pack(self) -> u8 {
@@ -21,6 +23,7 @@ impl WaterCell {
 		Self {
 			level: packed & 0x7F,
 			is_source: packed & 0x80 != 0,
+			sediment: 0,
 		}
 	}
 }
@@ -106,7 +109,7 @@ impl WaterState {
 use crate::tile::Tile;
 
 pub trait WaterSimulator {
-	fn tick(&mut self, state: &mut WaterState, terrain: &[Tile]);
+	fn tick(&mut self, state: &mut WaterState, terrain: &mut [Tile]);
 	fn place_water(&mut self, state: &mut WaterState, x: usize, y: usize, z: usize, level: u8);
 	fn remove_water(&mut self, state: &mut WaterState, x: usize, y: usize, z: usize);
 }
@@ -135,6 +138,7 @@ mod tests {
 			WaterCell {
 				level: 5,
 				is_source: true,
+				sediment: 0,
 			},
 		);
 		let cell = state.get(1, 2, 3);
@@ -147,6 +151,7 @@ mod tests {
 		let cell = WaterCell {
 			level: 8,
 			is_source: true,
+			sediment: 0,
 		};
 		let packed = cell.pack();
 		let unpacked = WaterCell::unpack(packed);
@@ -164,6 +169,7 @@ mod tests {
 			WaterCell {
 				level: 4,
 				is_source: false,
+				sediment: 0,
 			},
 		);
 		state.set(
@@ -173,6 +179,7 @@ mod tests {
 			WaterCell {
 				level: 8,
 				is_source: true,
+				sediment: 0,
 			},
 		);
 		state.sync_levels_cache();

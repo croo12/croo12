@@ -19,77 +19,135 @@ impl WaterSimulator for CellularWaterSimulator {
 		let w = state.width();
 		let d = state.depth();
 		let h = state.height();
-		let current = state.snapshot_cells();
-		let mut next = current.clone();
+		let original = state.snapshot_cells();
+		let mut cells = original.clone();
 
-		// Top-to-bottom iteration for gravity
-		for z in (0..h).rev() {
+		// Pass 1: Gravity — snapshot 기반, 한 tick에 한 층만 이동
+		for z in (1..h).rev() {
 			for y in 0..d {
 				for x in 0..w {
 					let idx = x + y * w + z * w * d;
-					let cell = current[idx];
-					if cell.level == 0 {
+					let src_level = original[idx].level;
+					if src_level == 0 {
 						continue;
 					}
 
-					// 1. Fall down
+					let below_idx = x + y * w + (z - 1) * w * d;
+					if Self::is_solid(terrain, below_idx) {
+						continue;
+					}
+
+					// below의 현재 누적량 확인 (다른 셀에서 이미 떨어진 물 고려)
+					if cells[below_idx].level >= 8 {
+						continue;
+					}
+
+					let space = 8 - cells[below_idx].level;
+					let transfer = src_level.min(space);
+					cells[below_idx].level += transfer;
+					cells[idx].level = cells[idx].level.saturating_sub(transfer);
+				}
+			}
+		}
+
+		// Pass 2: Horizontal spread — snapshot 기반 delta 누적
+		// 아래가 비어있으면 수평 분배 스킵 (중력 우선)
+		let after_gravity = cells.clone();
+		let mut deltas = vec![0i16; w * d * h];
+
+		for z in 0..h {
+			for y in 0..d {
+				for x in 0..w {
+					let idx = x + y * w + z * w * d;
+					let my_level = after_gravity[idx].level;
+					if my_level <= 1 {
+						continue;
+					}
+
+					// 아래가 비어있으면 중력이 우선 — 수평 분배 스킵
 					if z > 0 {
 						let below_idx = x + y * w + (z - 1) * w * d;
-						if !Self::is_solid(terrain, below_idx) && next[below_idx].level < 8 {
-							let space = 8 - next[below_idx].level;
-							let transfer = cell.level.min(space);
-							next[below_idx].level += transfer;
-							next[idx].level -= transfer;
-							if next[idx].level == 0 && !cell.is_source {
-								continue;
-							}
+						if !Self::is_solid(terrain, below_idx)
+							&& after_gravity[below_idx].level < 8
+						{
+							continue;
 						}
 					}
 
-					// 2. Spread horizontally
-					let current_level = next[idx].level;
-					if current_level > 0 {
-						let neighbors: [(isize, isize); 4] =
-							[(-1, 0), (1, 0), (0, -1), (0, 1)];
-						let mut valid: Vec<usize> = Vec::new();
-						for (dx, dy) in neighbors {
-							let nx = x as isize + dx;
-							let ny = y as isize + dy;
-							if nx < 0 || nx >= w as isize || ny < 0 || ny >= d as isize {
-								continue;
-							}
-							let nidx = nx as usize + ny as usize * w + z * w * d;
-							if Self::is_solid(terrain, nidx) {
-								continue;
-							}
-							if current[nidx].level < cell.level {
-								valid.push(nidx);
-							}
+					let neighbors: [(isize, isize); 4] =
+						[(-1, 0), (1, 0), (0, -1), (0, 1)];
+					let mut lower_count: u8 = 0;
+					let mut total_diff: u16 = 0;
+					let mut lower_indices = [(0usize, 0u8); 4];
+
+					for (dx, dy) in neighbors {
+						let nx = x as isize + dx;
+						let ny = y as isize + dy;
+						if nx < 0 || nx >= w as isize || ny < 0 || ny >= d as isize {
+							continue;
 						}
-						if !valid.is_empty() {
-							let total_cells = valid.len() as u8 + 1;
-							let total_water: u8 = current_level
-								+ valid.iter().map(|&ni| current[ni].level).sum::<u8>();
-							let base = total_water / total_cells;
-							let remainder = total_water % total_cells;
-							next[idx].level = base + if remainder > 0 { 1 } else { 0 };
-							for (i, &ni) in valid.iter().enumerate() {
-								next[ni].level =
-									base + if (i as u8 + 1) < remainder { 1 } else { 0 };
-							}
+						let nidx = nx as usize + ny as usize * w + z * w * d;
+						if Self::is_solid(terrain, nidx) {
+							continue;
+						}
+						let n_level = after_gravity[nidx].level;
+						if n_level < my_level {
+							let diff = my_level - n_level;
+							lower_indices[lower_count as usize] = (nidx, diff);
+							total_diff += diff as u16;
+							lower_count += 1;
 						}
 					}
 
-					// 3. Source replenishment
-					if cell.is_source {
-						next[idx].level = 8;
-						next[idx].is_source = true;
+					if lower_count == 0 {
+						continue;
+					}
+
+					// 총 유출량: 각 이웃으로의 차이 합 / (이웃수 + 1), 최대 my_level - 1
+					let total_give =
+						((total_diff / (lower_count as u16 + 1)) as u8).min(my_level - 1);
+					if total_give == 0 {
+						continue;
+					}
+
+					deltas[idx] -= total_give as i16;
+
+					// 차이 비례로 분배
+					let mut distributed: u8 = 0;
+					for i in 0..lower_count as usize {
+						let (nidx, diff) = lower_indices[i];
+						let share = if total_diff > 0 {
+							((total_give as u16 * diff as u16) / total_diff) as u8
+						} else {
+							0
+						};
+						let share = share.min(total_give - distributed);
+						deltas[nidx] += share as i16;
+						distributed += share;
+					}
+					// 나머지 1단위는 첫 이웃에게
+					if distributed < total_give {
+						deltas[lower_indices[0].0] += (total_give - distributed) as i16;
 					}
 				}
 			}
 		}
 
-		state.apply_cells(next);
+		// Apply deltas
+		for (i, cell) in cells.iter_mut().enumerate() {
+			let new_level = (after_gravity[i].level as i16 + deltas[i]).clamp(0, 8) as u8;
+			cell.level = new_level;
+		}
+
+		// Pass 3: Source replenishment
+		for (i, cell) in cells.iter_mut().enumerate() {
+			if original[i].is_source {
+				cell.level = 8;
+				cell.is_source = true;
+			}
+		}
+
+		state.apply_cells(cells);
 	}
 
 	fn place_water(&mut self, state: &mut WaterState, x: usize, y: usize, z: usize, level: u8) {

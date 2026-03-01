@@ -28,6 +28,7 @@ impl AsciiRenderer {
 	fn render_top_down(&self, world: &World<impl WaterSimulator>, z: usize) -> String {
 		let w = world.width();
 		let d = world.depth();
+		assert!(z < world.height(), "z={} out of bounds (height={})", z, world.height());
 		let mut out = format!("z={} ({}x{}):\n", z, w, d);
 		for y in 0..d {
 			for x in 0..w {
@@ -41,6 +42,7 @@ impl AsciiRenderer {
 	fn render_side(&self, world: &World<impl WaterSimulator>, y: usize) -> String {
 		let w = world.width();
 		let h = world.height();
+		assert!(y < world.depth(), "y={} out of bounds (depth={})", y, world.depth());
 		let mut out = format!("y={} (x->, z^, {}x{}):\n", y, w, h);
 		for z in (0..h).rev() {
 			for x in 0..w {

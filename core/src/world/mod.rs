@@ -2,8 +2,8 @@ pub mod gravity;
 
 pub(crate) const CLOUD_THRESHOLD: u32 = 10000;
 pub(crate) const CLOUD_WATER: u32 = 8000;
-pub(crate) const DROPS_PER_TICK: u32 = 5;
-pub(crate) const RAIN_MASS_PER_DROP: u8 = 5;
+pub(crate) const DROPS_PER_TICK: u32 = 3;
+pub(crate) const RAIN_MASS_PER_DROP: u8 = 2;
 pub(crate) const CLOUD_SPEED: f32 = 0.3;
 pub(crate) const MAX_CLOUDS: usize = 3;
 

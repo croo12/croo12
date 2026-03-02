@@ -214,9 +214,9 @@ mod tests {
 		}
 		w.clouds.push(Cloud {
 			x: 4.0, y: 4.0, dx: 0.0, dy: 0.0,
-			water: 10, radius: 2.5,
+			water: 4, radius: 2.5,
 		});
 		pass_cloud_update(&mut w);
-		assert!(w.clouds.is_empty(), "Cloud with 10 water should deplete in one tick");
+		assert!(w.clouds.is_empty(), "Cloud with minimal water should deplete in one tick");
 	}
 }

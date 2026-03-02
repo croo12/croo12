@@ -25,6 +25,11 @@ pub fn tick(world: &mut World) {
 	// Evaporation
 	mass_evaporation::pass_evaporation(world);
 
+	// Weather: cloud movement/rain, then spawn check
+	weather::pass_cloud_update(world);
+	weather::pass_cloud_spawn(world);
+
+	world.sync_cloud_buffer();
 	world.sync_tiles_cache();
 }
 
@@ -59,5 +64,26 @@ mod tests {
 		// Water should exist at positions away from source
 		let distant_water = world.water_mass(0, 4, 1) + world.water_mass(4, 0, 1);
 		assert!(distant_water > 0, "Water should reach distant cells");
+	}
+
+	#[test]
+	fn tick_weather_cycle_produces_rain() {
+		let mut world = World::new(8, 8, 8);
+		for x in 0..8 {
+			for y in 0..8 {
+				world.set(x, y, 0, Tile::Stone);
+			}
+		}
+		world.atmospheric_moisture = 10000;
+
+		for _ in 0..50 {
+			tick(&mut world);
+		}
+
+		let total: u32 = (0..8)
+			.flat_map(|x| (0..8).flat_map(move |y| (0..8).map(move |z| (x, y, z))))
+			.map(|(x, y, z)| world.water_mass(x, y, z) as u32)
+			.sum();
+		assert!(total > 0, "Rain should have added water: {}", total);
 	}
 }

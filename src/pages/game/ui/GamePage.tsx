@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import type React from "react";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { WorldData } from "@/entities/tile";
 import { IsometricCanvas } from "@/features/terrain-renderer";
 import { colors, effects, layout, spacing } from "@/shared/theme";
@@ -28,18 +28,20 @@ const CANVAS_WIDTH = 800;
 const CANVAS_HEIGHT = 600;
 const WORLD_SIZE = 64;
 const WORLD_HEIGHT = 128;
-const SEED = 77;
+const DEFAULT_SEED = 77;
 const TICK_INTERVAL_MS = 200;
 
 const gameCoreQueryOptions = createWasmLoader("game-core", initGameCore);
 
 export const GamePage: React.FC = () => {
 	const { data: wasmOutput, isSuccess } = useQuery(gameCoreQueryOptions);
+	const [seed, setSeed] = useState(DEFAULT_SEED);
+	const [inputSeed, setInputSeed] = useState(String(DEFAULT_SEED));
 
 	const world = useMemo(() => {
 		if (!isSuccess || !wasmOutput) return null;
 
-		create_world(WORLD_SIZE, WORLD_SIZE, WORLD_HEIGHT, SEED);
+		create_world(WORLD_SIZE, WORLD_SIZE, WORLD_HEIGHT, seed);
 
 		const ptr = world_tiles_ptr();
 		const len = world_tiles_len();
@@ -59,7 +61,7 @@ export const GamePage: React.FC = () => {
 			moistureLen,
 		);
 		return new WorldData(w, d, h, tiles, water, moisture);
-	}, [isSuccess, wasmOutput]);
+	}, [isSuccess, wasmOutput, seed]);
 
 	useEffect(() => {
 		if (!wasmOutput || !world) return;
@@ -144,6 +146,60 @@ export const GamePage: React.FC = () => {
 				}}
 			>
 				<Title>Isometric Terrain Sandbox</Title>
+				<div
+					style={{
+						display: "flex",
+						alignItems: "center",
+						justifyContent: "center",
+						gap: spacing.sm,
+						marginBottom: spacing.sm,
+					}}
+				>
+					<Body>Seed:</Body>
+					<input
+						type="number"
+						min={0}
+						max={4294967295}
+						value={inputSeed}
+						onChange={(e) => setInputSeed(e.target.value)}
+						onKeyDown={(e) => {
+							if (e.key === "Enter") {
+								const value = Number(inputSeed);
+								if (!Number.isNaN(value) && value >= 0 && value <= 4294967295) {
+									setSeed(value);
+								}
+							}
+						}}
+						style={{
+							width: "140px",
+							padding: `${spacing.xs} ${spacing.sm}`,
+							borderRadius: layout.radius,
+							border: `1px solid ${colors.border}`,
+							background: colors.bgPrimary,
+							color: colors.textPrimary,
+							textAlign: "center",
+						}}
+					/>
+					<button
+						type="button"
+						onClick={() => {
+							const value = Number(inputSeed);
+							if (!Number.isNaN(value) && value >= 0 && value <= 4294967295) {
+								setSeed(value);
+							}
+						}}
+						style={{
+							padding: `${spacing.xs} ${spacing.md}`,
+							borderRadius: layout.radius,
+							border: `1px solid ${colors.border}`,
+							background: colors.bgElevated,
+							color: colors.textPrimary,
+							cursor: "pointer",
+						}}
+					>
+						Generate
+					</button>
+				</div>
 				<Body>WASD / Arrow keys to pan, mouse wheel to zoom.</Body>
 			</div>
 		</div>

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { colors, layout, spacing, typography } from "@/shared/theme";
+import { colors, layout, spacing } from "@/shared/theme";
 import { Body, SubTitle, Title, useTypewriter } from "@/shared/ui";
 
 const OVERVIEW_TEXT =
@@ -7,28 +7,14 @@ const OVERVIEW_TEXT =
 
 const TECH_STACK = ["WebAssembly (Rust)", "React", "TypeScript"];
 
-const FSD_TREE = [
-	"src/",
-	"  app/       # Entry point, router, global styles",
-	"  pages/     # Screen-level components",
-	"  widgets/   # Composite UI blocks",
-	"  features/  # User actions",
-	"  entities/  # Domain models",
-	"  shared/    # Common utilities, UI, wasm loader",
-].join("\n");
-
 /*
  * Step 0:     h1  "About"
  * Step 1:     h2  "Project Overview"
  * Step 2:     p   overview text
  * Step 3:     h2  "Tech Stack"
- * Step 4–6:   li  tech stack items
- * Step 7:     h2  "FSD Architecture"
- * Step 8:     pre fsd tree (last — cursor stays)
+ * Step 4–6:   li  tech stack items (last — cursor stays)
  */
 const TECH_STACK_START = 4;
-const FSD_HEADING_STEP = TECH_STACK_START + TECH_STACK.length;
-const FSD_TREE_STEP = FSD_HEADING_STEP + 1;
 
 interface TypedLineProps {
 	text: string;
@@ -64,12 +50,6 @@ export const AboutPage: React.FC = () => {
 	const [step, setStep] = useState(0);
 
 	const next = (): void => setStep((s) => s + 1);
-
-	const fsd = useTypewriter({
-		text: FSD_TREE,
-		speed: 8,
-		isActive: step >= FSD_TREE_STEP,
-	});
 
 	return (
 		<div
@@ -148,34 +128,6 @@ export const AboutPage: React.FC = () => {
 				</section>
 			)}
 
-			{step >= FSD_HEADING_STEP && (
-				<section>
-					<SubTitle>
-						<TypedLine
-							text="FSD Architecture"
-							speed={40}
-							isActive={step >= FSD_HEADING_STEP}
-							showCursor={step === FSD_HEADING_STEP}
-							onComplete={next}
-						/>
-					</SubTitle>
-					{step >= FSD_TREE_STEP && (
-						<pre
-							style={{
-								background: colors.bgTertiary,
-								padding: spacing.md,
-								borderRadius: layout.radius,
-								color: colors.textMuted,
-								overflow: "auto",
-								lineHeight: typography.lineHeightBase,
-							}}
-						>
-							{fsd.displayedText}
-							<span className="cursor" aria-hidden="true" />
-						</pre>
-					)}
-				</section>
-			)}
 		</div>
 	);
 };

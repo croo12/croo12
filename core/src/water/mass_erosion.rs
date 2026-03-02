@@ -60,9 +60,24 @@ pub fn pass_erosion(world: &mut World) {
 					continue;
 				}
 
+				// Erosion: Requires water_sediment to be 0 (clear water can erode)
+				// If fully saturated with sediment (8), it cannot erode more
+				if world.water_sediment[idx] > 0 {
+					continue;
+				}
+
 				let flow = world.water_outflow(idx);
+				
+				// Sinkhole fix: Completely stagnant deep water (like oceans) shouldn't erode its bed.
+				// Require a minimum kinetic flow to trigger erosion.
+				if flow < 10 {
+					continue;
+				}
+
 				let pressure = count_water_above(world, x, y, z) as u64;
-				let base_chance = (pressure * 5 + (flow as u64) / 5).min(80);
+				
+				// Rebalanced base chance: highly observable timescale (~10-30s per block)
+				let base_chance = (pressure * 2 + (flow as u64) / 4).min(40);
 				if base_chance == 0 {
 					continue;
 				}
@@ -71,14 +86,15 @@ pub fn pass_erosion(world: &mut World) {
 				let below_moisture = world.soil_moisture[below_idx];
 				let below_cap = world.get(x, y, z - 1).moisture_capacity();
 				let multiplier = erosion_multiplier(below_moisture, below_cap);
-				let chance = ((base_chance as f64 * multiplier) as u64).min(95);
+				let chance = ((base_chance as f64 * multiplier) as u64).min(80);
 
-				let roll = simple_hash(x, y, z, seed) % 100;
+				// Roll out of 1000 for ~1% chance per tick at normal flow (~20s average)
+				let roll = simple_hash(x, y, z, seed) % 1000;
 				if roll < chance {
 					use crate::tile::Tile;
 					world.set(x, y, z - 1, Tile::Air);
-					let sed = world.water_sediment[idx];
-					world.water_sediment[idx] = sed.saturating_add(1).min(7);
+					// Eroding exactly 1 block adds exactly 8 sediment
+					world.water_sediment[idx] = 8;
 				}
 			}
 		}
@@ -91,12 +107,18 @@ pub fn pass_erosion(world: &mut World) {
 			for x in 0..w {
 				let idx = world.index(x, y, z);
 				let sed = world.water_sediment[idx];
-				if sed < 3 || world.water_mass[idx] == 0 {
+				
+				// OPTIMIZATION: Deposition only happens when carrying a full block of sediment (8)
+				if sed < 8 || world.water_mass[idx] == 0 {
 					continue;
 				}
 
 				let flow = world.water_outflow(idx);
-				if flow > 60 {
+				let mass = world.water_mass[idx];
+				
+				// Deposition happens if flow is very low OR mass is low (shallow edges of a flowing river)
+				// This allows edges to deposit sand and form banks, confining the river.
+				if flow > 20 && mass > 64 {
 					continue;
 				}
 
@@ -110,9 +132,10 @@ pub fn pass_erosion(world: &mut World) {
 					continue;
 				}
 
-				// Probabilistic: higher sediment = higher chance
-				let chance = ((sed as u64) * 10).min(60);
-				let roll = simple_hash(x, y, z, seed) % 100;
+				// Chance scales. Flowing shallow water has a moderate chance, completely stagnant has high.
+				let chance = if flow <= 20 { 8000 } else { 2000 };
+				// Roll out of 10000
+				let roll = simple_hash(x, y, z, seed) % 10000;
 				if roll >= chance {
 					continue;
 				}
@@ -154,10 +177,10 @@ pub fn pass_erosion(world: &mut World) {
 				// Deposited underwater — soil moisture comes from displaced water
 				world.soil_moisture[idx] = absorbed as u8;
 
-				// 2. Move remaining sediment (minus 1 consumed as Sand) to z+1
-				let remaining_sed = displaced_sed.saturating_sub(1);
+				// 2. Consume exactly 8 sediment (1 block)
+				let remaining_sed = displaced_sed.saturating_sub(8);
 				world.water_sediment[above_idx] =
-					world.water_sediment[above_idx].saturating_add(remaining_sed);
+					world.water_sediment[above_idx].saturating_add(remaining_sed).min(8);
 
 				// 3. Clear trapped data
 				world.water_mass[idx] = 0;
@@ -204,12 +227,12 @@ mod tests {
 	#[test]
 	fn deposition_places_sand_and_displaces_water_up() {
 		// Deposition is now probabilistic; run multiple passes until it triggers
-		for _ in 0..30 {
+		for _ in 0..100 {
 			let mut w = World::new(4, 4, 4);
 			w.set(1, 1, 0, Tile::Stone);
 			w.set_water_mass(1, 1, 1, 100);
 			let idx = w.index(1, 1, 1);
-			w.water_sediment[idx] = 7; // High sediment → 60% chance
+			w.water_sediment[idx] = 8; // High sediment -> triggers deposition
 			w.water_outflow[idx] = 0;
 			pass_erosion(&mut w);
 			if w.get(1, 1, 1) == Tile::Sand {
@@ -219,14 +242,15 @@ mod tests {
 				return;
 			}
 		}
-		panic!("Deposition should occur within 30 tries at 60% chance per try");
+		panic!("Deposition should occur within 100 tries");
 	}
 
 	#[test]
 	fn damp_soil_resists_erosion() {
 		let mut eroded_dry = 0u32;
 		let mut eroded_wet = 0u32;
-		for _ in 0..100 {
+		// Drastically increased iterations from 100 to 2000 to overcome low geological erosion chance
+		for _ in 0..2000 {
 			let mut w = World::new(4, 4, 4);
 			w.set(1, 1, 0, Tile::Dirt);
 			w.set_water_mass(1, 1, 1, 200);
@@ -273,13 +297,13 @@ mod tests {
 		w.set(1, 1, 2, Tile::Stone); // ceiling blocks displacement
 		w.set_water_mass(1, 1, 1, 100);
 		let idx = w.index(1, 1, 1);
-		w.water_sediment[idx] = 3;
+		w.water_sediment[idx] = 8;
 		w.water_outflow[idx] = 0;
 		pass_erosion(&mut w);
 		// Should NOT deposit since water has nowhere to go
 		assert!(w.get(1, 1, 1).is_air(), "should remain Air, not Sand");
 		assert_eq!(w.water_mass(1, 1, 1), 100, "water should be untouched");
-		assert_eq!(w.water_sediment[idx], 3, "sediment should be untouched");
+		assert_eq!(w.water_sediment[idx], 8, "sediment should be untouched");
 	}
 
 	#[test]
@@ -287,13 +311,13 @@ mod tests {
 		// z=1: water+sediment, z=2: water already full (255)
 		// Bounce-up should push displaced water to z=3
 		// Some water is absorbed as soil moisture in deposited Sand
-		for _ in 0..30 {
+		for _ in 0..100 {
 			let mut w = World::new(4, 4, 8);
 			w.set(1, 1, 0, Tile::Stone);
 			w.set_water_mass(1, 1, 1, 100);
 			w.set_water_mass(1, 1, 2, 255);
 			let idx = w.index(1, 1, 1);
-			w.water_sediment[idx] = 7;
+			w.water_sediment[idx] = 8;
 			w.water_outflow[idx] = 0;
 
 			let total_before: u16 = (0..8)
@@ -316,7 +340,7 @@ mod tests {
 				return;
 			}
 		}
-		panic!("Deposition should occur within 30 tries");
+		panic!("Deposition should occur within 100 tries");
 	}
 
 	#[test]
@@ -327,7 +351,7 @@ mod tests {
 		w.set_water_mass(1, 1, 2, 255);
 		w.set_water_mass(1, 1, 3, 255); // entire column full above
 		let idx = w.index(1, 1, 1);
-		w.water_sediment[idx] = 7;
+		w.water_sediment[idx] = 8;
 		w.water_outflow[idx] = 0;
 		pass_erosion(&mut w);
 		// Deposition should be cancelled — no room for displaced water
@@ -337,14 +361,14 @@ mod tests {
 
 	#[test]
 	fn deposition_consumes_one_sediment() {
-		// After deposition, total sediment should decrease by exactly 1
+		// After deposition, total sediment should decrease by exactly 8
 		// (the particle that became Sand)
-		for _ in 0..30 {
+		for _ in 0..100 {
 			let mut w = World::new(4, 4, 8);
 			w.set(1, 1, 0, Tile::Stone);
 			w.set_water_mass(1, 1, 1, 100);
 			let idx = w.index(1, 1, 1);
-			w.water_sediment[idx] = 5;
+			w.water_sediment[idx] = 8;
 			w.water_outflow[idx] = 0;
 
 			let total_before: u32 = (0..8)
@@ -358,24 +382,24 @@ mod tests {
 					.map(|z| w.water_sediment(1, 1, z) as u32)
 					.sum();
 				assert_eq!(
-					total_before - total_after, 1,
-					"Deposition should consume exactly 1 sediment: before={} after={}",
+					total_before - total_after, 8,
+					"Deposition should consume exactly 8 sediment: before={} after={}",
 					total_before, total_after
 				);
 				return;
 			}
 		}
-		panic!("Deposition should occur within 30 tries");
+		panic!("Deposition should occur within 100 tries");
 	}
 
 	#[test]
 	fn deposition_sets_soil_moisture() {
-		for _ in 0..30 {
+		for _ in 0..100 {
 			let mut w = World::new(4, 4, 4);
 			w.set(1, 1, 0, Tile::Stone);
 			w.set_water_mass(1, 1, 1, 100);
 			let idx = w.index(1, 1, 1);
-			w.water_sediment[idx] = 7;
+			w.water_sediment[idx] = 8;
 			w.water_outflow[idx] = 0;
 			pass_erosion(&mut w);
 			if w.get(1, 1, 1) == Tile::Sand {
@@ -387,6 +411,6 @@ mod tests {
 				return;
 			}
 		}
-		panic!("Deposition should occur within 30 tries");
+		panic!("Deposition should occur within 100 tries");
 	}
 }

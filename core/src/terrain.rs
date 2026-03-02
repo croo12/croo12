@@ -6,9 +6,9 @@ use crate::world::World;
 const WATER_LEVEL: usize = 32;
 const SEA_FLOOR: usize = 16;
 const OCEAN_THRESHOLD: f64 = 0.38;
-const CONTINENT_FREQ: f64 = 0.008;
-const MOUNTAIN_FREQ: f64 = 0.04;
-const DETAIL_FREQ: f64 = 0.05;
+const CONTINENT_FREQ: f64 = 0.015;
+const MOUNTAIN_FREQ: f64 = 0.08;
+const DETAIL_FREQ: f64 = 0.15;
 const BEACH_DEPTH: usize = 3;
 const RIVER_SOURCE_COUNT: usize = 3;
 const DIRT_LAYERS: usize = 3;
@@ -49,10 +49,11 @@ pub fn generate_terrain(world: &mut World, seed: u32) {
 			} else {
 				// Land
 				let land_factor = (continent_n - OCEAN_THRESHOLD) / (1.0 - OCEAN_THRESHOLD);
-				let base = WATER_LEVEL as f64 + 2.0 + land_factor * 18.0;
+				let base = WATER_LEVEL as f64 + 2.0 + land_factor * 30.0;
+				// Powf(1.5) makes mountains spike instead of rolling smoothly.
 				let mountain_contrib =
-					mountain_n * land_factor * land_factor.sqrt() * 50.0;
-				let detail_contrib = (detail_n - 0.5) * 8.0;
+					mountain_n.powf(1.5) * land_factor * 80.0;
+				let detail_contrib = (detail_n - 0.5) * 15.0;
 				let raw = base + mountain_contrib + detail_contrib;
 				raw.clamp((WATER_LEVEL + 1) as f64, (h - 2) as f64) as usize
 			};

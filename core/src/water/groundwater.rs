@@ -57,6 +57,7 @@ pub fn pass_groundwater(world: &mut World) {
 					continue;
 				}
 				let moisture = world.soil_moisture[idx];
+				// OPTIMIZATION: Early exit
 				if moisture == 0 {
 					continue;
 				}
@@ -98,6 +99,7 @@ pub fn pass_groundwater(world: &mut World) {
 				}
 				let moisture =
 					(world.soil_moisture[idx] as i16 + world.moisture_delta[idx]).max(0) as u8;
+				// OPTIMIZATION: Early exit
 				if moisture == 0 {
 					continue;
 				}
@@ -167,6 +169,7 @@ pub fn pass_groundwater(world: &mut World) {
 				let moisture =
 					(world.soil_moisture[idx] as i16 + world.moisture_delta[idx]).max(0) as u8;
 				let threshold = cap / 2;
+				// OPTIMIZATION: Early exit
 				if moisture <= threshold {
 					continue;
 				}

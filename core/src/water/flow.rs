@@ -75,15 +75,17 @@ pub fn pass_flow(world: &mut World) {
 
 	// Snapshot post-gravity expected mass — all cells read from the same state,
 	// eliminating directional bias from iteration order.
-	let snapshot: Vec<u8> = (0..w * d * h)
-		.map(|i| (world.water_mass[i] as i16 + world.mass_delta[i]).clamp(0, 255) as u8)
-		.collect();
+	// OPTIMIZATION: Use pre-allocated water_snapshot to avoid per-tick allocation
+	for i in 0..(w * d * h) {
+		world.water_snapshot[i] =
+			(world.water_mass[i] as i16 + world.mass_delta[i]).clamp(0, 255) as u8;
+	}
 
 	for z in 0..h {
 		for y in 0..d {
 			for x in 0..w {
 				let idx = world.index(x, y, z);
-				let remaining = snapshot[idx];
+				let remaining = world.water_snapshot[idx];
 				if remaining == 0 {
 					continue;
 				}
@@ -91,7 +93,7 @@ pub fn pass_flow(world: &mut World) {
 				// Skip if can still fall (gravity priority)
 				if z > 0 {
 					let below_idx = world.index(x, y, z - 1);
-					if !world.get(x, y, z - 1).is_solid() && snapshot[below_idx] < 255 {
+					if !world.get(x, y, z - 1).is_solid() && world.water_snapshot[below_idx] < 255 {
 						continue;
 					}
 				}
@@ -114,15 +116,23 @@ pub fn pass_flow(world: &mut World) {
 						continue;
 					}
 					let n_idx = world.index(nx, ny, z);
-					let n_mass = snapshot[n_idx];
+					let n_mass = world.water_snapshot[n_idx];
 					if n_mass >= remaining {
 						continue;
 					}
 
 					let diff = (remaining - n_mass) as u16;
-					// Flow memory: 50% bonus in previously flowing directions
+					
+					// Surface tension: require a minimum mass difference (e.g. 5) to spread laterally
+					// This stops water from spreading infinitely into a 1-depth puddle
+					if diff < 5 {
+						continue;
+					}
+
+					// Flow memory: 300% bonus (diff * 4) in previously flowing directions
+					// Strongly encourages straight rivers rather than radial spreads
 					let slope = if prev_dir & (1 << i) != 0 {
-						diff + diff / 2
+						diff * 4
 					} else {
 						diff
 					};
@@ -139,6 +149,12 @@ pub fn pass_flow(world: &mut World) {
 
 				// Equalization-based budget: target = avg of self + lower neighbors
 				let target = ((remaining as u32 + lower_sum) / (1 + lower_count)) as u16;
+				
+				// Ensure the budget leaves the spread threshold behind to maintain surface tension
+				if remaining as u16 <= target + 2 {
+					continue;
+				}
+
 				let budget = remaining as u16 - target;
 				let mut new_dir: u8 = 0;
 
@@ -175,6 +191,8 @@ pub fn pass_flow(world: &mut World) {
 			for x in 0..w {
 				let idx = world.index(x, y, z);
 				let expected = world.water_mass[idx] as i16 + world.mass_delta[idx];
+				
+				// OPTIMIZATION: Early exit for empty blocks or non-overflowing blocks
 				if expected <= 255 {
 					continue;
 				}

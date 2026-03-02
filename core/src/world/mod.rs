@@ -28,6 +28,7 @@ pub struct World {
 	// Water layer fields (mass-based cellular automata)
 	pub(crate) water_mass: Vec<u8>,
 	pub(crate) water_sediment: Vec<u8>,
+	pub(crate) water_snapshot: Vec<u8>,
 	pub(crate) mass_delta: Vec<i16>,
 	pub(crate) sediment_delta: Vec<i16>,
 	pub(crate) water_outflow: Vec<u16>,
@@ -51,6 +52,7 @@ impl World {
 			tiles_cache: vec![0u8; size],
 			water_mass: vec![0u8; size],
 			water_sediment: vec![0u8; size],
+			water_snapshot: vec![0u8; size],
 			mass_delta: vec![0i16; size],
 			sediment_delta: vec![0i16; size],
 			water_outflow: vec![0u16; size],

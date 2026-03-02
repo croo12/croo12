@@ -78,6 +78,26 @@ pub fn world_water_len() -> usize {
 }
 
 #[wasm_bindgen]
+pub fn world_clouds_ptr() -> *const f32 {
+	with_world(|w| w.cloud_buffer_ptr())
+}
+
+#[wasm_bindgen]
+pub fn world_clouds_len() -> usize {
+	with_world(|w| w.cloud_buffer_len())
+}
+
+#[wasm_bindgen]
+pub fn world_clouds_count() -> usize {
+	with_world(|w| w.clouds_count())
+}
+
+#[wasm_bindgen]
+pub fn world_atmospheric_moisture() -> u32 {
+	with_world(|w| w.atmospheric_moisture)
+}
+
+#[wasm_bindgen]
 pub fn tick_water() {
 	with_world_mut(|w| water::tick(w));
 }
@@ -149,7 +169,10 @@ mod tests {
 		for t in 1..=200 {
 			water::tick(&mut world);
 			if t % 50 == 0 {
-				println!("\n=== TICK {} | water mass: {} ===", t, count_water_mass(&world));
+				println!(
+					"\n=== TICK {} | water mass: {} | atmos: {} | clouds: {} ===",
+					t, count_water_mass(&world), world.atmospheric_moisture, world.clouds.len()
+				);
 
 				for tz in [37, 36, 35, 34, 32, 30] {
 					if tz < world.height() {

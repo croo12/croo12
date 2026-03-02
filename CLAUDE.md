@@ -43,6 +43,17 @@ src/
 
 FSD 의존성 방향: `app → pages → widgets → features → entities → shared` (상위→하위만 허용).
 
+## Simulation Scale
+
+| 항목 | 값 | 비고 |
+|------|-----|------|
+| 1 블록 | 10m × 10m × 10m | 지형 시뮬레이션용 스케일 |
+| 물리 시간 (1 tick) | ≈ 1.5초 | 자유낙하 10m ≈ 1.43s 기준 |
+| 지질 시간 (1 tick) | ≈ 수개월 | 침식/퇴적/지하수 |
+| 질량 1 단위 | ≈ 4,000L (4m³) | 블록 부피 1000m³ 기준 |
+
+**듀얼 타임스케일 모델**: 유체 역학(중력 낙하, 수평 유동)은 물리 시간으로, 침식·퇴적·지하수 흡수는 지질 시간으로 동작한다. 두 시간 스케일이 동일 tick에서 실행되지만 서로 다른 현실 시간을 추상화한다(Game Abstraction).
+
 ## Code Style
 
 - **Formatter/Linter:** Biome (tab indent, double quotes)

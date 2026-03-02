@@ -219,6 +219,52 @@ mod tests {
 			total
 		};
 
+		let count_total_moisture = |w: &World| -> u32 {
+			let mut total = 0u32;
+			for z in 0..w.height() {
+				for y in 0..w.depth() {
+					for x in 0..w.width() {
+						total += w.soil_moisture(x, y, z) as u32;
+					}
+				}
+			}
+			total
+		};
+
+		let count_seepage_cells = |w: &World| -> usize {
+			let mut count = 0usize;
+			for z in 0..w.height() {
+				for y in 0..w.depth() {
+					for x in 0..w.width() {
+						let tile = w.get(x, y, z);
+						let cap = tile.moisture_capacity();
+						if cap == 0 { continue; }
+						let m = w.soil_moisture(x, y, z);
+						if m > cap / 2 {
+							// Check if adjacent to air
+							let neighbors = [
+								(x.wrapping_sub(1), y, z),
+								(x + 1, y, z),
+								(x, y.wrapping_sub(1), z),
+								(x, y + 1, z),
+								(x, y, z + 1),
+							];
+							for (nx, ny, nz) in neighbors {
+								if nx < w.width() && ny < w.depth() && nz < w.height()
+									&& w.get(nx, ny, nz).is_air()
+									&& w.water_mass(nx, ny, nz) == 0
+								{
+									count += 1;
+									break;
+								}
+							}
+						}
+					}
+				}
+			}
+			count
+		};
+
 		let max_outflow = |w: &World| -> (u16, usize, usize, usize) {
 			let mut max_f = 0u16;
 			let mut mx = 0;
@@ -263,6 +309,11 @@ mod tests {
 				println!(
 					"    max outflow: {} at ({},{},{})",
 					mf, mx, my, mz
+				);
+				println!(
+					"    moisture: {} | seepage_ready: {}",
+					count_total_moisture(&world),
+					count_seepage_cells(&world)
 				);
 
 				println!("{}", side.render(&world));

@@ -118,15 +118,46 @@ pub fn pass_erosion(world: &mut World) {
 				}
 
 				use crate::tile::Tile;
-				// 1. Place sand
-				world.set(x, y, z, Tile::Sand);
-				world.water_sediment[idx] -= 1;
 
-				// 2. Displace water + remaining sediment to z+1
-				world.water_mass[above_idx] =
-					world.water_mass[above_idx].saturating_add(world.water_mass[idx]);
+				// 2. Displace water upward with bounce-up cascade
+				let displaced = world.water_mass[idx];
+				let displaced_sed = world.water_sediment[idx];
+				let sand_cap = Tile::Sand.moisture_capacity() as u16;
+				// Soil moisture comes from the displaced water
+				let absorbed = (displaced as u16).min(sand_cap);
+				let mut remaining = displaced as u16 - absorbed;
+				let mut cz = z + 1;
+				while remaining > 0 && cz < h {
+					if world.get(x, y, cz).is_solid() {
+						break;
+					}
+					let cidx = world.index(x, y, cz);
+					let cap = 255u16.saturating_sub(world.water_mass[cidx] as u16);
+					let fill = remaining.min(cap);
+					if fill > 0 {
+						world.water_mass[cidx] += fill as u8;
+						remaining -= fill;
+					}
+					if remaining > 0 {
+						cz += 1;
+					} else {
+						break;
+					}
+				}
+				if remaining > 0 {
+					// No room in entire column — cancel deposition
+					continue;
+				}
+
+				// 1. Place sand (after water is safely displaced)
+				world.set(x, y, z, Tile::Sand);
+				// Deposited underwater — soil moisture comes from displaced water
+				world.soil_moisture[idx] = absorbed as u8;
+
+				// 2. Move remaining sediment (minus 1 consumed as Sand) to z+1
+				let remaining_sed = displaced_sed.saturating_sub(1);
 				world.water_sediment[above_idx] =
-					world.water_sediment[above_idx].saturating_add(world.water_sediment[idx]);
+					world.water_sediment[above_idx].saturating_add(remaining_sed);
 
 				// 3. Clear trapped data
 				world.water_mass[idx] = 0;
@@ -249,5 +280,113 @@ mod tests {
 		assert!(w.get(1, 1, 1).is_air(), "should remain Air, not Sand");
 		assert_eq!(w.water_mass(1, 1, 1), 100, "water should be untouched");
 		assert_eq!(w.water_sediment[idx], 3, "sediment should be untouched");
+	}
+
+	#[test]
+	fn deposition_bounce_up_conserves_water() {
+		// z=1: water+sediment, z=2: water already full (255)
+		// Bounce-up should push displaced water to z=3
+		// Some water is absorbed as soil moisture in deposited Sand
+		for _ in 0..30 {
+			let mut w = World::new(4, 4, 8);
+			w.set(1, 1, 0, Tile::Stone);
+			w.set_water_mass(1, 1, 1, 100);
+			w.set_water_mass(1, 1, 2, 255);
+			let idx = w.index(1, 1, 1);
+			w.water_sediment[idx] = 7;
+			w.water_outflow[idx] = 0;
+
+			let total_before: u16 = (0..8)
+				.map(|z| w.water_mass(1, 1, z) as u16 + w.soil_moisture(1, 1, z) as u16)
+				.sum();
+
+			pass_erosion(&mut w);
+
+			let total_after: u16 = (0..8)
+				.map(|z| w.water_mass(1, 1, z) as u16 + w.soil_moisture(1, 1, z) as u16)
+				.sum();
+
+			if w.get(1, 1, 1) == Tile::Sand {
+				assert_eq!(
+					total_before, total_after,
+					"Water+moisture must be conserved: before={} after={}",
+					total_before, total_after
+				);
+				assert!(w.water_mass(1, 1, 3) > 0, "Overflow should reach z=3");
+				return;
+			}
+		}
+		panic!("Deposition should occur within 30 tries");
+	}
+
+	#[test]
+	fn deposition_cancels_when_column_full() {
+		let mut w = World::new(4, 4, 4);
+		w.set(1, 1, 0, Tile::Stone);
+		w.set_water_mass(1, 1, 1, 100);
+		w.set_water_mass(1, 1, 2, 255);
+		w.set_water_mass(1, 1, 3, 255); // entire column full above
+		let idx = w.index(1, 1, 1);
+		w.water_sediment[idx] = 7;
+		w.water_outflow[idx] = 0;
+		pass_erosion(&mut w);
+		// Deposition should be cancelled — no room for displaced water
+		assert!(w.get(1, 1, 1).is_air(), "should remain Air");
+		assert_eq!(w.water_mass(1, 1, 1), 100, "water untouched");
+	}
+
+	#[test]
+	fn deposition_consumes_one_sediment() {
+		// After deposition, total sediment should decrease by exactly 1
+		// (the particle that became Sand)
+		for _ in 0..30 {
+			let mut w = World::new(4, 4, 8);
+			w.set(1, 1, 0, Tile::Stone);
+			w.set_water_mass(1, 1, 1, 100);
+			let idx = w.index(1, 1, 1);
+			w.water_sediment[idx] = 5;
+			w.water_outflow[idx] = 0;
+
+			let total_before: u32 = (0..8)
+				.map(|z| w.water_sediment(1, 1, z) as u32)
+				.sum();
+
+			pass_erosion(&mut w);
+
+			if w.get(1, 1, 1) == Tile::Sand {
+				let total_after: u32 = (0..8)
+					.map(|z| w.water_sediment(1, 1, z) as u32)
+					.sum();
+				assert_eq!(
+					total_before - total_after, 1,
+					"Deposition should consume exactly 1 sediment: before={} after={}",
+					total_before, total_after
+				);
+				return;
+			}
+		}
+		panic!("Deposition should occur within 30 tries");
+	}
+
+	#[test]
+	fn deposition_sets_soil_moisture() {
+		for _ in 0..30 {
+			let mut w = World::new(4, 4, 4);
+			w.set(1, 1, 0, Tile::Stone);
+			w.set_water_mass(1, 1, 1, 100);
+			let idx = w.index(1, 1, 1);
+			w.water_sediment[idx] = 7;
+			w.water_outflow[idx] = 0;
+			pass_erosion(&mut w);
+			if w.get(1, 1, 1) == Tile::Sand {
+				assert_eq!(
+					w.soil_moisture(1, 1, 1),
+					Tile::Sand.moisture_capacity(),
+					"Deposited sand should be saturated"
+				);
+				return;
+			}
+		}
+		panic!("Deposition should occur within 30 tries");
 	}
 }

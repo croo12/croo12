@@ -219,7 +219,7 @@ impl World {
 				self.water_sediment[i] = new_sed as u8;
 				self.sediment_delta[i] = 0;
 			}
-			}
+		}
 	}
 
 	pub fn clear_outflow(&mut self) {

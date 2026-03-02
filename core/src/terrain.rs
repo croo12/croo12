@@ -1,11 +1,15 @@
-use noise::{Fbm, MultiFractal, NoiseFn, Perlin};
+use noise::{Fbm, MultiFractal, NoiseFn, Perlin, RidgedMulti};
 
 use crate::tile::Tile;
 use crate::world::World;
 
 const WATER_LEVEL: usize = 32;
 const SEA_FLOOR: usize = 16;
-const NOISE_SCALE: f64 = 0.03;
+const OCEAN_THRESHOLD: f64 = 0.38;
+const CONTINENT_FREQ: f64 = 0.008;
+const MOUNTAIN_FREQ: f64 = 0.04;
+const DETAIL_FREQ: f64 = 0.05;
+const BEACH_DEPTH: usize = 3;
 const RIVER_SOURCE_COUNT: usize = 3;
 const DIRT_LAYERS: usize = 3;
 
@@ -14,18 +18,55 @@ pub fn generate_terrain(world: &mut World, seed: u32) {
 	let d = world.depth();
 	let h = world.height();
 
-	let fbm = Fbm::<Perlin>::new(seed)
+	let continent = Fbm::<Perlin>::new(seed)
+		.set_octaves(2)
+		.set_frequency(CONTINENT_FREQ);
+
+	let mountain = RidgedMulti::<Perlin>::new(seed.wrapping_add(1))
 		.set_octaves(4)
-		.set_frequency(NOISE_SCALE);
+		.set_frequency(MOUNTAIN_FREQ);
+
+	let detail = Fbm::<Perlin>::new(seed.wrapping_add(2))
+		.set_octaves(4)
+		.set_frequency(DETAIL_FREQ);
 
 	// Generate surface height map
 	let mut surface_heights = vec![0usize; w * d];
 	for y in 0..d {
 		for x in 0..w {
-			let val = fbm.get([x as f64, y as f64]);
-			let normalized = (val + 1.0) / 2.0; // 0.0..1.0
-			let surface = SEA_FLOOR + (normalized * (h - SEA_FLOOR) as f64 * 0.6) as usize;
+			let continent_raw = continent.get([x as f64, y as f64]);
+			let mountain_n = (mountain.get([x as f64, y as f64]) + 1.0) / 2.0;
+			let detail_n = (detail.get([x as f64, y as f64]) + 1.0) / 2.0;
+			let continent_n = (continent_raw + 1.0) / 2.0;
+
+			let surface = if continent_n < OCEAN_THRESHOLD {
+				// Ocean: SEA_FLOOR ~ WATER_LEVEL
+				let depth_factor = continent_n / OCEAN_THRESHOLD;
+				let base = SEA_FLOOR as f64
+					+ depth_factor * (WATER_LEVEL - SEA_FLOOR) as f64
+					+ (detail_n - 0.5) * 3.0;
+				base as usize
+			} else {
+				// Land
+				let land_factor = (continent_n - OCEAN_THRESHOLD) / (1.0 - OCEAN_THRESHOLD);
+				let base = WATER_LEVEL as f64 + 2.0 + land_factor * 18.0;
+				let mountain_contrib =
+					mountain_n * land_factor * land_factor.sqrt() * 50.0;
+				let detail_contrib = (detail_n - 0.5) * 8.0;
+				let raw = base + mountain_contrib + detail_contrib;
+				raw.clamp((WATER_LEVEL + 1) as f64, (h - 2) as f64) as usize
+			};
+
 			surface_heights[x + y * w] = surface.min(h - 1);
+		}
+	}
+
+	// Safety: if all surfaces are at or below WATER_LEVEL, boost heights
+	let max_surface = surface_heights.iter().copied().max().unwrap_or(0);
+	if max_surface <= WATER_LEVEL {
+		let boost = WATER_LEVEL + 5 - max_surface;
+		for s in surface_heights.iter_mut() {
+			*s = (*s + boost).min(h - 2);
 		}
 	}
 
@@ -37,7 +78,7 @@ pub fn generate_terrain(world: &mut World, seed: u32) {
 				let tile = if z > surface {
 					Tile::Air
 				} else if z == surface {
-					if surface <= WATER_LEVEL {
+					if surface <= WATER_LEVEL + BEACH_DEPTH {
 						Tile::Sand
 					} else {
 						Tile::Grass
@@ -48,6 +89,20 @@ pub fn generate_terrain(world: &mut World, seed: u32) {
 					Tile::Stone
 				};
 				world.set(x, y, z, tile);
+			}
+		}
+	}
+
+	// Fill ocean: set water in cells where surface < WATER_LEVEL
+	for y in 0..d {
+		for x in 0..w {
+			let surface = surface_heights[x + y * w];
+			if surface < WATER_LEVEL {
+				for z in (surface + 1)..=WATER_LEVEL {
+					if z < h {
+						world.set_water_mass(x, y, z, 255);
+					}
+				}
 			}
 		}
 	}

@@ -32,9 +32,27 @@ pub fn pass_evaporation(world: &mut World) {
 					continue;
 				}
 
+				// Count water depth below — deep bodies evaporate much slower
+				let mut water_depth: u32 = 0;
+				for dz in 1..=z {
+					if world.water_mass(x, y, z - dz) > 0 {
+						water_depth += 1;
+					} else {
+						break;
+					}
+				}
+
+				let (evap_chance, evap_max): (u64, u8) = if water_depth >= 4 {
+					(1, 2) // deep ocean: 1% chance, max 2
+				} else if water_depth >= 2 {
+					(3, 5) // moderate depth: 3% chance, max 5
+				} else {
+					(5, 10) // shallow/puddle: original behavior
+				};
+
 				let roll = simple_hash(x, y, z, seed) % 100;
-				if roll < 5 {
-					let evap = mass.min(10);
+				if roll < evap_chance {
+					let evap = mass.min(evap_max);
 					world.water_mass[idx] = mass - evap;
 					world.atmospheric_moisture += evap as u32;
 					if world.water_mass[idx] == 0 && world.water_sediment[idx] > 0 {
@@ -97,6 +115,35 @@ mod tests {
 		assert!(
 			w.atmospheric_moisture > initial_moisture,
 			"Atmospheric moisture should increase from evaporation"
+		);
+	}
+
+	#[test]
+	fn deep_water_evaporates_slower() {
+		// Shallow water (depth 0)
+		let mut shallow = World::new(4, 4, 8);
+		shallow.set(1, 1, 0, crate::tile::Tile::Stone);
+		shallow.set_water_mass(1, 1, 1, 255);
+
+		// Deep water (depth 5)
+		let mut deep = World::new(4, 4, 8);
+		deep.set(1, 1, 0, crate::tile::Tile::Stone);
+		for z in 1..=5 {
+			deep.set_water_mass(1, 1, z, 255);
+		}
+
+		for _ in 0..200 {
+			pass_evaporation(&mut shallow);
+			pass_evaporation(&mut deep);
+		}
+
+		let shallow_lost = 255 - shallow.water_mass(1, 1, 1);
+		let deep_top_lost = 255 - deep.water_mass(1, 1, 5);
+		assert!(
+			deep_top_lost < shallow_lost,
+			"Deep water surface ({}) should evaporate less than shallow ({})",
+			deep_top_lost,
+			shallow_lost
 		);
 	}
 }

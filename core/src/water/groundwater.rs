@@ -194,11 +194,11 @@ pub fn pass_groundwater(world: &mut World) {
 
 				if let Some(target) = seep_idx {
 					let available = moisture - threshold;
-					let seep = available.min(2);
+					let capacity = 255u8.saturating_sub(world.water_mass[target]);
+					let seep = available.min(2).min(capacity);
 					if seep > 0 {
 						world.moisture_delta[idx] -= seep as i16;
-						world.water_mass[target] =
-							world.water_mass[target].saturating_add(seep);
+						world.water_mass[target] += seep;
 					}
 				}
 			}

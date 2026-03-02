@@ -73,16 +73,17 @@ pub fn pass_flow(world: &mut World) {
 	// Directions: 0=-x, 1=+x, 2=-y, 3=+y
 	let dir_offsets: [(isize, isize); 4] = [(-1, 0), (1, 0), (0, -1), (0, 1)];
 
+	// Snapshot post-gravity expected mass — all cells read from the same state,
+	// eliminating directional bias from iteration order.
+	let snapshot: Vec<u8> = (0..w * d * h)
+		.map(|i| (world.water_mass[i] as i16 + world.mass_delta[i]).clamp(0, 255) as u8)
+		.collect();
+
 	for z in 0..h {
 		for y in 0..d {
 			for x in 0..w {
 				let idx = world.index(x, y, z);
-				let mass = world.water_mass[idx];
-				if mass == 0 {
-					continue;
-				}
-
-				let remaining = (mass as i16 + world.mass_delta[idx]).max(0) as u8;
+				let remaining = snapshot[idx];
 				if remaining == 0 {
 					continue;
 				}
@@ -90,19 +91,16 @@ pub fn pass_flow(world: &mut World) {
 				// Skip if can still fall (gravity priority)
 				if z > 0 {
 					let below_idx = world.index(x, y, z - 1);
-					let below_expected = (world.water_mass[below_idx] as i16
-						+ world.mass_delta[below_idx])
-						.min(255)
-						.max(0) as u8;
-					if !world.get(x, y, z - 1).is_solid() && below_expected < 255 {
+					if !world.get(x, y, z - 1).is_solid() && snapshot[below_idx] < 255 {
 						continue;
 					}
 				}
 
 				let prev_dir = world.flow_dir[idx];
-				let mut slopes: [(usize, u16); 4] = [(0, 0); 4];
+				let mut slopes: [(usize, u16, u8); 4] = [(0, 0, 0); 4]; // (n_idx, slope, n_mass)
 				let mut total_slope: u32 = 0;
-				let mut count = 0u8;
+				let mut lower_sum: u32 = 0;
+				let mut lower_count: u32 = 0;
 
 				for (i, &(dx, dy)) in dir_offsets.iter().enumerate() {
 					let nx = x as isize + dx;
@@ -116,8 +114,7 @@ pub fn pass_flow(world: &mut World) {
 						continue;
 					}
 					let n_idx = world.index(nx, ny, z);
-					let n_mass =
-						(world.water_mass[n_idx] as i16 + world.mass_delta[n_idx]).max(0) as u8;
+					let n_mass = snapshot[n_idx];
 					if n_mass >= remaining {
 						continue;
 					}
@@ -130,31 +127,38 @@ pub fn pass_flow(world: &mut World) {
 						diff
 					};
 
-					slopes[i] = (n_idx, slope);
+					slopes[i] = (n_idx, slope, n_mass);
 					total_slope += slope as u32;
-					count += 1;
+					lower_sum += n_mass as u32;
+					lower_count += 1;
 				}
 
-				if count == 0 || total_slope == 0 {
+				if lower_count == 0 || total_slope == 0 {
 					continue;
 				}
 
-				// Budget: half of remaining to prevent oscillation
-				let budget = remaining as u16 / 2;
+				// Equalization-based budget: target = avg of self + lower neighbors
+				let target = ((remaining as u32 + lower_sum) / (1 + lower_count)) as u16;
+				let budget = remaining as u16 - target;
 				let mut new_dir: u8 = 0;
 
-				for (i, &(n_idx, slope)) in slopes.iter().enumerate() {
+				for (i, &(n_idx, slope, n_mass)) in slopes.iter().enumerate() {
 					if slope == 0 {
 						continue;
 					}
-					let transfer = ((budget as u32 * slope as u32) / total_slope) as u16;
+					// Slope-proportional share, capped at (target - n_mass)
+					let proportional = ((budget as u32 * slope as u32) / total_slope) as u16;
+					let equalize_cap = target.saturating_sub(n_mass as u16);
+					let transfer = proportional.min(equalize_cap);
 					if transfer == 0 {
 						continue;
 					}
 
 					new_dir |= 1 << i;
 
-					let sed = world.water_sediment[idx];
+					let sed = (world.water_sediment[idx] as i16
+						+ world.sediment_delta[idx])
+						.max(0) as u8;
 					let sed_transfer =
 						calc_sediment_transfer(sed, transfer, remaining, idx, seed);
 					world.record_flow(idx, n_idx, transfer, sed_transfer);
@@ -201,6 +205,17 @@ mod tests {
 	#[test]
 	fn gravity_water_falls_into_air() {
 		let mut w = World::new(4, 4, 4);
+		// Walled column so horizontal spread doesn't drain water
+		for z in 0..4 {
+			for x in 0..4 {
+				for y in 0..4 {
+					if x == 0 && y == 0 {
+						continue;
+					}
+					w.set(x, y, z, Tile::Stone);
+				}
+			}
+		}
 		w.set(0, 0, 0, Tile::Stone);
 		w.set_water_mass(0, 0, 2, 100);
 		pass_flow(&mut w);
@@ -364,6 +379,55 @@ mod tests {
 			.map(|(x, y, z)| w.water_mass(x, y, z) as u32)
 			.sum();
 		assert!(total > 255, "Should have significant water: {}", total);
+	}
+
+	#[test]
+	fn phase2_sediment_reflects_gravity_loss() {
+		// Cell (2,2,2): water=100, sediment=10
+		// Below (2,2,1): water=205 → capacity=50
+		// Phase 1: 50 water + 5 sediment fall down
+		// Phase 2: snapshot remaining=50, effective sediment=5
+		//   One horizontal neighbor (3,2,2): target=(50+0)/2=25, transfer=25
+		//   Correct: calc_sediment_transfer(5, 25, 50) = 2.5 → 2 or 3
+		//   Buggy (raw sed=10): calc_sediment_transfer(10, 25, 50) = 5
+		let mut w = World::new(5, 5, 5);
+		for x in 0..5 {
+			for y in 0..5 {
+				for z in 0..5 {
+					w.set(x, y, z, Tile::Stone);
+				}
+			}
+		}
+		w.set(2, 2, 2, Tile::Air);
+		w.set(2, 2, 1, Tile::Air);
+		w.set(3, 2, 2, Tile::Air);
+
+		w.set_water_mass(2, 2, 2, 100);
+		w.set_water_sediment(2, 2, 2, 10);
+		w.set_water_mass(2, 2, 1, 205);
+
+		pass_flow(&mut w);
+
+		let below_sed = w.water_sediment(2, 2, 1);
+		let horiz_sed = w.water_sediment(3, 2, 2);
+		let remain_sed = w.water_sediment(2, 2, 2);
+		let total = below_sed as u16 + horiz_sed as u16 + remain_sed as u16;
+
+		// Sediment must be conserved
+		assert_eq!(
+			total, 10,
+			"Sediment conserved: below={} horiz={} remain={}",
+			below_sed, horiz_sed, remain_sed
+		);
+		// Gravity carries 50% water → 5 sediment
+		assert_eq!(below_sed, 5, "Gravity should carry 5 sediment");
+		// Horizontal should use effective sediment (5), not raw (10)
+		// 5 * 25/50 = 2.5 → expect 2 or 3, NOT 5
+		assert!(
+			horiz_sed <= 3,
+			"Expected ~2-3 from effective sed=5, got {} (raw sed bug?)",
+			horiz_sed
+		);
 	}
 
 	#[test]

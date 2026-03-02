@@ -1,6 +1,7 @@
 pub mod flow;
 pub mod mass_erosion;
 pub mod mass_evaporation;
+pub mod weather;
 
 use crate::world::World;
 

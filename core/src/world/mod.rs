@@ -32,6 +32,8 @@ pub struct World {
 	pub(crate) sediment_delta: Vec<i16>,
 	pub(crate) water_outflow: Vec<u16>,
 	pub(crate) flow_dir: Vec<u8>,
+	pub(crate) soil_moisture: Vec<u8>,
+	pub(crate) moisture_delta: Vec<i16>,
 	sources: Vec<(usize, usize, usize)>,
 	pub(crate) atmospheric_moisture: u32,
 	pub(crate) clouds: Vec<Cloud>,
@@ -53,6 +55,8 @@ impl World {
 			sediment_delta: vec![0i16; size],
 			water_outflow: vec![0u16; size],
 			flow_dir: vec![0u8; size],
+			soil_moisture: vec![0u8; size],
+			moisture_delta: vec![0i16; size],
 			sources: Vec::new(),
 			atmospheric_moisture: 0,
 			clouds: Vec::new(),
@@ -153,6 +157,37 @@ impl World {
 	pub fn set_water_sediment(&mut self, x: usize, y: usize, z: usize, sed: u8) {
 		let idx = self.index(x, y, z);
 		self.water_sediment[idx] = sed;
+	}
+
+	// --- Soil moisture accessors ---
+
+	pub fn soil_moisture(&self, x: usize, y: usize, z: usize) -> u8 {
+		self.soil_moisture[self.index(x, y, z)]
+	}
+
+	pub fn set_soil_moisture(&mut self, x: usize, y: usize, z: usize, moisture: u8) {
+		let idx = self.index(x, y, z);
+		self.soil_moisture[idx] = moisture;
+	}
+
+	pub fn soil_moisture_ptr(&self) -> *const u8 {
+		self.soil_moisture.as_ptr()
+	}
+
+	pub fn soil_moisture_len(&self) -> usize {
+		self.soil_moisture.len()
+	}
+
+	pub fn apply_moisture_deltas(&mut self) {
+		for i in 0..self.soil_moisture.len() {
+			if self.moisture_delta[i] != 0 {
+				let cap = self.tiles[i].moisture_capacity() as i16;
+				let new_val =
+					(self.soil_moisture[i] as i16 + self.moisture_delta[i]).clamp(0, cap);
+				self.soil_moisture[i] = new_val as u8;
+				self.moisture_delta[i] = 0;
+			}
+		}
 	}
 
 	// --- Delta / outflow helpers ---
@@ -296,6 +331,36 @@ mod tests {
 		w.apply_water_deltas();
 		assert_eq!(w.water_mass(0, 0, 0), 255); // clamped
 		assert_eq!(w.mass_delta_ref()[idx], 0); // reset
+	}
+
+	#[test]
+	fn soil_moisture_set_and_get() {
+		let mut w = World::new(4, 4, 4);
+		w.set(1, 1, 1, Tile::Dirt);
+		w.set_soil_moisture(1, 1, 1, 50);
+		assert_eq!(w.soil_moisture(1, 1, 1), 50);
+		assert_eq!(w.soil_moisture(0, 0, 0), 0);
+	}
+
+	#[test]
+	fn apply_moisture_deltas_clamps_to_capacity() {
+		let mut w = World::new(4, 4, 4);
+		w.set(0, 0, 0, Tile::Sand); // capacity = 48
+		w.soil_moisture[0] = 40;
+		w.moisture_delta[0] = 100; // would exceed 48
+		w.apply_moisture_deltas();
+		assert_eq!(w.soil_moisture(0, 0, 0), 48); // clamped
+		assert_eq!(w.moisture_delta[0], 0); // reset
+	}
+
+	#[test]
+	fn apply_moisture_deltas_clamps_to_zero() {
+		let mut w = World::new(4, 4, 4);
+		w.set(0, 0, 0, Tile::Dirt);
+		w.soil_moisture[0] = 10;
+		w.moisture_delta[0] = -50;
+		w.apply_moisture_deltas();
+		assert_eq!(w.soil_moisture(0, 0, 0), 0);
 	}
 
 	#[test]

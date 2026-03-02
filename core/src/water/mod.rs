@@ -22,7 +22,7 @@ pub fn tick(world: &mut World) {
 	mass_erosion::pass_erosion(world);
 
 	// Evaporation
-	mass_evaporation::pass_evaporation(world, &sources);
+	mass_evaporation::pass_evaporation(world);
 
 	world.sync_tiles_cache();
 }

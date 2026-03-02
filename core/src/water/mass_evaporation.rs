@@ -12,7 +12,7 @@ fn simple_hash(x: usize, y: usize, z: usize, seed: u64) -> u64 {
 
 static EVAP_TICK: AtomicU64 = AtomicU64::new(0);
 
-pub fn pass_evaporation(world: &mut World, sources: &[(usize, usize, usize)]) {
+pub fn pass_evaporation(world: &mut World) {
 	let seed = EVAP_TICK.fetch_add(1, Ordering::Relaxed);
 	let w = world.width();
 	let d = world.depth();
@@ -24,14 +24,6 @@ pub fn pass_evaporation(world: &mut World, sources: &[(usize, usize, usize)]) {
 				let idx = world.index(x, y, z);
 				let mass = world.water_mass[idx];
 				if mass == 0 {
-					continue;
-				}
-
-				// Sources don't evaporate
-				if sources
-					.iter()
-					.any(|&(sx, sy, sz)| sx == x && sy == y && sz == z)
-				{
 					continue;
 				}
 
@@ -64,9 +56,8 @@ mod tests {
 		let mut w = World::new(4, 4, 4);
 		w.set(1, 1, 0, crate::tile::Tile::Stone);
 		w.set_water_mass(1, 1, 1, 100);
-		// Run many times - probabilistic, so some should evaporate
 		for _ in 0..100 {
-			pass_evaporation(&mut w, &[]);
+			pass_evaporation(&mut w);
 		}
 		assert!(
 			w.water_mass(1, 1, 1) < 100,
@@ -75,31 +66,14 @@ mod tests {
 	}
 
 	#[test]
-	fn source_does_not_evaporate() {
-		let mut w = World::new(4, 4, 4);
-		w.set(1, 1, 0, crate::tile::Tile::Stone);
-		w.set_water_mass(1, 1, 1, 100);
-		let sources = vec![(1, 1, 1)];
-		for _ in 0..100 {
-			pass_evaporation(&mut w, &sources);
-		}
-		assert_eq!(
-			w.water_mass(1, 1, 1),
-			100,
-			"Source water should not evaporate"
-		);
-	}
-
-	#[test]
 	fn evaporation_leaves_sand_when_dry_with_sediment() {
 		let mut w = World::new(4, 4, 4);
 		w.set(1, 1, 0, crate::tile::Tile::Stone);
-		w.set_water_mass(1, 1, 1, 1); // Very little water
+		w.set_water_mass(1, 1, 1, 1);
 		let idx = w.index(1, 1, 1);
 		w.water_sediment[idx] = 2;
-		// Run until evaporated
 		for _ in 0..1000 {
-			pass_evaporation(&mut w, &[]);
+			pass_evaporation(&mut w);
 			if w.water_mass(1, 1, 1) == 0 {
 				break;
 			}

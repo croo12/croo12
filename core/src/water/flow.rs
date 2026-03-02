@@ -29,6 +29,9 @@ static FLOW_TICK: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::n
 pub fn pass_flow(world: &mut World) {
 	let seed = FLOW_TICK.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
+	// Clear previous tick's outflow before recording new flows
+	world.clear_outflow();
+
 	let w = world.width();
 	let d = world.depth();
 	let h = world.height();
@@ -66,7 +69,10 @@ pub fn pass_flow(world: &mut World) {
 		}
 	}
 
-	// Phase 2: Horizontal spread
+	// Phase 2: Slope-proportional horizontal spread with flow memory
+	// Directions: 0=-x, 1=+x, 2=-y, 3=+y
+	let dir_offsets: [(isize, isize); 4] = [(-1, 0), (1, 0), (0, -1), (0, 1)];
+
 	for z in 0..h {
 		for y in 0..d {
 			for x in 0..w {
@@ -76,7 +82,6 @@ pub fn pass_flow(world: &mut World) {
 					continue;
 				}
 
-				// Calculate remaining after gravity
 				let remaining = (mass as i16 + world.mass_delta[idx]).max(0) as u8;
 				if remaining == 0 {
 					continue;
@@ -94,63 +99,68 @@ pub fn pass_flow(world: &mut World) {
 					}
 				}
 
-				// Collect valid neighbors with lower mass (sorted ascending)
-				let neighbors: [(usize, usize); 4] = [
-					(x.wrapping_sub(1), y),
-					(x + 1, y),
-					(x, y.wrapping_sub(1)),
-					(x, y + 1),
-				];
+				let prev_dir = world.flow_dir[idx];
+				let mut slopes: [(usize, u16); 4] = [(0, 0); 4];
+				let mut total_slope: u32 = 0;
+				let mut count = 0u8;
 
-				let mut valid_with_mass: Vec<(usize, u8)> = Vec::new();
-				for &(nx, ny) in &neighbors {
-					if nx >= w || ny >= d {
+				for (i, &(dx, dy)) in dir_offsets.iter().enumerate() {
+					let nx = x as isize + dx;
+					let ny = y as isize + dy;
+					if nx < 0 || nx >= w as isize || ny < 0 || ny >= d as isize {
 						continue;
 					}
+					let nx = nx as usize;
+					let ny = ny as usize;
 					if world.get(nx, ny, z).is_solid() {
 						continue;
 					}
 					let n_idx = world.index(nx, ny, z);
 					let n_mass =
 						(world.water_mass[n_idx] as i16 + world.mass_delta[n_idx]).max(0) as u8;
-					if n_mass < remaining {
-						valid_with_mass.push((n_idx, n_mass));
+					if n_mass >= remaining {
+						continue;
 					}
+
+					let diff = (remaining - n_mass) as u16;
+					// Flow memory: 50% bonus in previously flowing directions
+					let slope = if prev_dir & (1 << i) != 0 {
+						diff + diff / 2
+					} else {
+						diff
+					};
+
+					slopes[i] = (n_idx, slope);
+					total_slope += slope as u32;
+					count += 1;
 				}
 
-				if valid_with_mass.is_empty() {
+				if count == 0 || total_slope == 0 {
 					continue;
 				}
 
-				valid_with_mass.sort_by_key(|&(_, m)| m);
+				// Budget: half of remaining to prevent oscillation
+				let budget = remaining as u16 / 2;
+				let mut new_dir: u8 = 0;
 
-				// Equilibrium: pool shallowest neighbors first, compute average target
-				let mut total_mass = remaining as u16;
-				let mut receivers: Vec<(usize, u8)> = Vec::new();
-
-				for &(n_idx, n_mass) in &valid_with_mass {
-					let avg = total_mass / (receivers.len() as u16 + 1);
-					if (n_mass as u16) < avg {
-						total_mass += n_mass as u16;
-						receivers.push((n_idx, n_mass));
+				for (i, &(n_idx, slope)) in slopes.iter().enumerate() {
+					if slope == 0 {
+						continue;
 					}
+					let transfer = ((budget as u32 * slope as u32) / total_slope) as u16;
+					if transfer == 0 {
+						continue;
+					}
+
+					new_dir |= 1 << i;
+
+					let sed = world.water_sediment[idx];
+					let sed_transfer =
+						calc_sediment_transfer(sed, transfer, remaining, idx, seed);
+					world.record_flow(idx, n_idx, transfer, sed_transfer);
 				}
 
-				if !receivers.is_empty() {
-					let final_avg = total_mass / (receivers.len() as u16 + 1);
-
-					for &(n_idx, n_mass) in &receivers {
-						let transfer = final_avg.saturating_sub(n_mass as u16);
-						if transfer == 0 {
-							continue;
-						}
-
-						let sed = world.water_sediment[idx];
-						let sed_transfer =
-							calc_sediment_transfer(sed, transfer, remaining, idx, seed);
-						world.record_flow(idx, n_idx, transfer, sed_transfer);
-					}
-				}
+				world.flow_dir[idx] = new_dir;
 			}
 		}
 	}

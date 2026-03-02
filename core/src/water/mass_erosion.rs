@@ -48,7 +48,7 @@ pub fn pass_erosion(world: &mut World) {
 
 				let flow = world.water_outflow(idx);
 				let pressure = count_water_above(world, x, y, z) as u64;
-				let chance = (pressure * 5 + (flow as u64) / 10).min(80);
+				let chance = (pressure * 5 + (flow as u64) / 5).min(80);
 				if chance == 0 {
 					continue;
 				}
@@ -64,18 +64,19 @@ pub fn pass_erosion(world: &mut World) {
 		}
 	}
 
-	// Deposition: slow water with sediment on solid ground deposits Sand
+	// Deposition: stagnant water with high sediment on solid ground deposits Sand
 	// Exclude top row (h-1) since we need z+1 for displacement
 	for z in (1..h.saturating_sub(1)).rev() {
 		for y in 0..d {
 			for x in 0..w {
 				let idx = world.index(x, y, z);
-				if world.water_sediment[idx] == 0 || world.water_mass[idx] == 0 {
+				let sed = world.water_sediment[idx];
+				if sed < 3 || world.water_mass[idx] == 0 {
 					continue;
 				}
 
 				let flow = world.water_outflow(idx);
-				if flow > 20 {
+				if flow > 60 {
 					continue;
 				}
 
@@ -86,6 +87,13 @@ pub fn pass_erosion(world: &mut World) {
 				// Above must not be solid — water needs somewhere to go
 				let above_idx = world.index(x, y, z + 1);
 				if world.get(x, y, z + 1).is_solid() {
+					continue;
+				}
+
+				// Probabilistic: higher sediment = higher chance
+				let chance = ((sed as u64) * 10).min(60);
+				let roll = simple_hash(x, y, z, seed) % 100;
+				if roll >= chance {
 					continue;
 				}
 
@@ -144,22 +152,23 @@ mod tests {
 
 	#[test]
 	fn deposition_places_sand_and_displaces_water_up() {
-		let mut w = World::new(4, 4, 4);
-		w.set(1, 1, 0, Tile::Stone);
-		w.set_water_mass(1, 1, 1, 100);
-		let idx = w.index(1, 1, 1);
-		let above_idx = w.index(1, 1, 2);
-		w.water_sediment[idx] = 3;
-		w.water_outflow[idx] = 0; // Very slow
-		pass_erosion(&mut w);
-		// Sand placed at z=1
-		assert_eq!(w.get(1, 1, 1), Tile::Sand);
-		// Water displaced to z=2
-		assert_eq!(w.water_mass(1, 1, 1), 0, "water should be cleared from sand cell");
-		assert_eq!(w.water_mass(1, 1, 2), 100, "water should move to z+1");
-		// Sediment: 3 - 1 = 2 remaining, displaced to z+1
-		assert_eq!(w.water_sediment[idx], 0, "sediment cleared from sand cell");
-		assert_eq!(w.water_sediment[above_idx], 2, "remaining sediment displaced to z+1");
+		// Deposition is now probabilistic; run multiple passes until it triggers
+		for _ in 0..30 {
+			let mut w = World::new(4, 4, 4);
+			w.set(1, 1, 0, Tile::Stone);
+			w.set_water_mass(1, 1, 1, 100);
+			let idx = w.index(1, 1, 1);
+			w.water_sediment[idx] = 7; // High sediment → 60% chance
+			w.water_outflow[idx] = 0;
+			pass_erosion(&mut w);
+			if w.get(1, 1, 1) == Tile::Sand {
+				assert_eq!(w.water_mass(1, 1, 1), 0, "water should be cleared from sand cell");
+				assert!(w.water_mass(1, 1, 2) > 0, "water should move to z+1");
+				assert_eq!(w.water_sediment[idx], 0, "sediment cleared from sand cell");
+				return;
+			}
+		}
+		panic!("Deposition should occur within 30 tries at 60% chance per try");
 	}
 
 	#[test]

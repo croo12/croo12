@@ -31,6 +31,7 @@ pub struct World {
 	pub(crate) mass_delta: Vec<i16>,
 	pub(crate) sediment_delta: Vec<i16>,
 	pub(crate) water_outflow: Vec<u16>,
+	pub(crate) flow_dir: Vec<u8>,
 	sources: Vec<(usize, usize, usize)>,
 	pub(crate) atmospheric_moisture: u32,
 	pub(crate) clouds: Vec<Cloud>,
@@ -51,6 +52,7 @@ impl World {
 			mass_delta: vec![0i16; size],
 			sediment_delta: vec![0i16; size],
 			water_outflow: vec![0u16; size],
+			flow_dir: vec![0u8; size],
 			sources: Vec::new(),
 			atmospheric_moisture: 0,
 			clouds: Vec::new(),
@@ -182,7 +184,12 @@ impl World {
 				self.water_sediment[i] = new_sed as u8;
 				self.sediment_delta[i] = 0;
 			}
-			self.water_outflow[i] = 0;
+			}
+	}
+
+	pub fn clear_outflow(&mut self) {
+		for v in self.water_outflow.iter_mut() {
+			*v = 0;
 		}
 	}
 

@@ -1,4 +1,5 @@
 pub mod flow;
+pub mod groundwater;
 pub mod mass_erosion;
 pub mod mass_evaporation;
 pub mod weather;
@@ -18,6 +19,9 @@ pub fn tick(world: &mut World) {
 		let idx = world.index(sx, sy, sz);
 		world.water_mass[idx] = world.water_mass[idx].saturating_add(50);
 	}
+
+	// Groundwater (absorption + underground flow + seepage)
+	groundwater::pass_groundwater(world);
 
 	// Erosion & deposition (uses outflow data from flow pass)
 	mass_erosion::pass_erosion(world);

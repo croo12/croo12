@@ -16,6 +16,10 @@ import initGameCore, {
 	world_water_len,
 	world_water_ptr,
 	world_width,
+	world_clouds_ptr,
+	world_clouds_len,
+	world_clouds_count,
+	world_atmospheric_moisture,
 } from "../../../../core/build/game_core";
 
 const CANVAS_WIDTH = 800;
@@ -63,6 +67,17 @@ export const GamePage: React.FC = () => {
 				waterLen,
 			);
 			world.updateTiles(tiles, water);
+
+			const cloudsCount = world_clouds_count();
+			const cloudsPtr = world_clouds_ptr();
+			const cloudsLen = world_clouds_len();
+			const cloudBuffer = new Float32Array(
+				wasmOutput.memory.buffer,
+				cloudsPtr,
+				cloudsLen,
+			);
+			const moisture = world_atmospheric_moisture();
+			world.updateClouds(cloudBuffer, cloudsCount, moisture);
 		}, TICK_INTERVAL_MS);
 		return () => clearInterval(interval);
 	}, [wasmOutput, world]);

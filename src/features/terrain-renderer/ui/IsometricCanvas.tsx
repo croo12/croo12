@@ -205,6 +205,27 @@ export const IsometricCanvas: React.FC<IsometricCanvasProps> = ({
 			}
 		}
 
+		// Draw cloud shadows
+		for (const cloud of world.clouds) {
+			const cloudSx = toScreenX(cloud.x, cloud.y);
+			const cloudSy = toScreenY(cloud.x, cloud.y, 0);
+			const radiusPx = cloud.radius * TILE_WIDTH;
+			const radiusPy = cloud.radius * TILE_HEIGHT * 0.5;
+
+			ctx.fillStyle = "rgba(100, 100, 120, 0.25)";
+			ctx.beginPath();
+			ctx.ellipse(
+				cloudSx,
+				cloudSy - TILE_DEPTH * 2,
+				radiusPx,
+				radiusPy,
+				0,
+				0,
+				Math.PI * 2,
+			);
+			ctx.fill();
+		}
+
 		ctx.restore();
 	}, [world]);
 

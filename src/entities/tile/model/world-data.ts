@@ -3,12 +3,21 @@ import { TileType } from "./tile-type";
 
 const TYPE_MASK = 0x07;
 
+export interface CloudData {
+	x: number;
+	y: number;
+	radius: number;
+	water: number;
+}
+
 export class WorldData {
 	readonly width: number;
 	readonly depth: number;
 	readonly height: number;
 	private tiles: Uint8Array;
 	private water: Uint8Array;
+	private _clouds: CloudData[] = [];
+	private _atmosphericMoisture = 0;
 
 	constructor(
 		width: number,
@@ -36,9 +45,35 @@ export class WorldData {
 		return this.water[this.index(x, y, z)];
 	}
 
+	get clouds(): readonly CloudData[] {
+		return this._clouds;
+	}
+
+	get atmosphericMoisture(): number {
+		return this._atmosphericMoisture;
+	}
+
 	updateTiles(tiles: Uint8Array, water: Uint8Array): void {
 		this.tiles = new Uint8Array(tiles);
 		this.water = new Uint8Array(water);
+	}
+
+	updateClouds(
+		cloudBuffer: Float32Array,
+		count: number,
+		moisture: number,
+	): void {
+		this._clouds = [];
+		for (let i = 0; i < count; i++) {
+			const offset = i * 4;
+			this._clouds.push({
+				x: cloudBuffer[offset],
+				y: cloudBuffer[offset + 1],
+				radius: cloudBuffer[offset + 2],
+				water: cloudBuffer[offset + 3],
+			});
+		}
+		this._atmosphericMoisture = moisture;
 	}
 
 	getTopZ(x: number, y: number): number {

@@ -94,7 +94,7 @@ pub fn pass_flow(world: &mut World) {
 					}
 				}
 
-				// Collect valid neighbors with lower mass
+				// Collect valid neighbors with lower mass (sorted ascending)
 				let neighbors: [(usize, usize); 4] = [
 					(x.wrapping_sub(1), y),
 					(x + 1, y),
@@ -102,7 +102,7 @@ pub fn pass_flow(world: &mut World) {
 					(x, y + 1),
 				];
 
-				let mut valid: Vec<usize> = Vec::new();
+				let mut valid_with_mass: Vec<(usize, u8)> = Vec::new();
 				for &(nx, ny) in &neighbors {
 					if nx >= w || ny >= d {
 						continue;
@@ -114,28 +114,42 @@ pub fn pass_flow(world: &mut World) {
 					let n_mass =
 						(world.water_mass[n_idx] as i16 + world.mass_delta[n_idx]).max(0) as u8;
 					if n_mass < remaining {
-						valid.push(n_idx);
+						valid_with_mass.push((n_idx, n_mass));
 					}
 				}
 
-				if valid.is_empty() {
+				if valid_with_mass.is_empty() {
 					continue;
 				}
 
-				let divisor = (valid.len() + 1) as u16;
-				for &n_idx in &valid {
-					let n_mass =
-						(world.water_mass[n_idx] as i16 + world.mass_delta[n_idx]).max(0) as u8;
-					let diff = remaining.saturating_sub(n_mass) as u16;
-					let transfer = diff / divisor;
-					if transfer == 0 {
-						continue;
-					}
+				valid_with_mass.sort_by_key(|&(_, m)| m);
 
-					let sed = world.water_sediment[idx];
-					let sed_transfer =
-						calc_sediment_transfer(sed, transfer, remaining, idx, seed);
-					world.record_flow(idx, n_idx, transfer, sed_transfer);
+				// Equilibrium: pool shallowest neighbors first, compute average target
+				let mut total_mass = remaining as u16;
+				let mut receivers: Vec<(usize, u8)> = Vec::new();
+
+				for &(n_idx, n_mass) in &valid_with_mass {
+					let avg = total_mass / (receivers.len() as u16 + 1);
+					if (n_mass as u16) < avg {
+						total_mass += n_mass as u16;
+						receivers.push((n_idx, n_mass));
+					}
+				}
+
+				if !receivers.is_empty() {
+					let final_avg = total_mass / (receivers.len() as u16 + 1);
+
+					for &(n_idx, n_mass) in &receivers {
+						let transfer = final_avg.saturating_sub(n_mass as u16);
+						if transfer == 0 {
+							continue;
+						}
+
+						let sed = world.water_sediment[idx];
+						let sed_transfer =
+							calc_sediment_transfer(sed, transfer, remaining, idx, seed);
+						world.record_flow(idx, n_idx, transfer, sed_transfer);
+					}
 				}
 			}
 		}
@@ -246,6 +260,50 @@ mod tests {
 			.sum();
 		assert_eq!(total, 200); // mass conserved
 		assert!(center < 200); // some spread out
+	}
+
+	#[test]
+	fn spread_no_uphill_flow() {
+		// Scenario: center=100, east=50, west=0, others blocked
+		// Equilibrium: all should reach 50 (100+50+0)/3 = 50
+		// Use a 5x5 world, wall everything except the 3 target cells
+		let mut w = World::new(5, 5, 3);
+		// Fill everything with stone
+		for x in 0..5 {
+			for y in 0..5 {
+				for z in 0..3 {
+					w.set(x, y, z, Tile::Stone);
+				}
+			}
+		}
+		// Open only the 3 cells in a row: (1,2,1), (2,2,1), (3,2,1)
+		w.set(1, 2, 1, Tile::Air);
+		w.set(2, 2, 1, Tile::Air);
+		w.set(3, 2, 1, Tile::Air);
+		// West=0, Center=100, East=50
+		w.set_water_mass(1, 2, 1, 0);
+		w.set_water_mass(2, 2, 1, 100);
+		w.set_water_mass(3, 2, 1, 50);
+		pass_flow(&mut w);
+		let west = w.water_mass(1, 2, 1);
+		let center = w.water_mass(2, 2, 1);
+		let east = w.water_mass(3, 2, 1);
+		// East should NOT exceed center (no uphill flow)
+		assert!(
+			east <= center,
+			"East ({}) should not exceed center ({}) - uphill flow bug!",
+			east,
+			center
+		);
+		// Mass conserved
+		assert_eq!(
+			west as u16 + center as u16 + east as u16,
+			150,
+			"Mass not conserved: west={} center={} east={}",
+			west,
+			center,
+			east
+		);
 	}
 
 	#[test]

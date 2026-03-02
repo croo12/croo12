@@ -65,14 +65,12 @@ pub fn pass_erosion(world: &mut World) {
 	}
 
 	// Deposition: slow water with sediment on solid ground deposits Sand
-	for z in (1..h).rev() {
+	// Exclude top row (h-1) since we need z+1 for displacement
+	for z in (1..h.saturating_sub(1)).rev() {
 		for y in 0..d {
 			for x in 0..w {
 				let idx = world.index(x, y, z);
-				if world.water_sediment[idx] == 0 {
-					continue;
-				}
-				if world.water_mass[idx] == 0 {
+				if world.water_sediment[idx] == 0 || world.water_mass[idx] == 0 {
 					continue;
 				}
 
@@ -81,18 +79,30 @@ pub fn pass_erosion(world: &mut World) {
 					continue;
 				}
 
-				if !world.get(x, y, z - 1).is_solid() {
+				if !world.get(x, y, z - 1).is_solid() || world.get(x, y, z).is_solid() {
+					continue;
+				}
+
+				// Above must not be solid — water needs somewhere to go
+				let above_idx = world.index(x, y, z + 1);
+				if world.get(x, y, z + 1).is_solid() {
 					continue;
 				}
 
 				use crate::tile::Tile;
-				// Current cell must not already be solid for Sand placement
-				if world.get(x, y, z).is_solid() {
-					continue;
-				}
+				// 1. Place sand
 				world.set(x, y, z, Tile::Sand);
 				world.water_sediment[idx] -= 1;
-				// Water at this cell gets displaced up by pressure next tick
+
+				// 2. Displace water + remaining sediment to z+1
+				world.water_mass[above_idx] =
+					world.water_mass[above_idx].saturating_add(world.water_mass[idx]);
+				world.water_sediment[above_idx] =
+					world.water_sediment[above_idx].saturating_add(world.water_sediment[idx]);
+
+				// 3. Clear trapped data
+				world.water_mass[idx] = 0;
+				world.water_sediment[idx] = 0;
 			}
 		}
 	}
@@ -133,15 +143,38 @@ mod tests {
 	}
 
 	#[test]
-	fn deposition_places_sand_on_slow_water() {
+	fn deposition_places_sand_and_displaces_water_up() {
 		let mut w = World::new(4, 4, 4);
 		w.set(1, 1, 0, Tile::Stone);
 		w.set_water_mass(1, 1, 1, 100);
 		let idx = w.index(1, 1, 1);
+		let above_idx = w.index(1, 1, 2);
 		w.water_sediment[idx] = 3;
 		w.water_outflow[idx] = 0; // Very slow
 		pass_erosion(&mut w);
+		// Sand placed at z=1
 		assert_eq!(w.get(1, 1, 1), Tile::Sand);
-		assert_eq!(w.water_sediment[idx], 2); // decreased by 1
+		// Water displaced to z=2
+		assert_eq!(w.water_mass(1, 1, 1), 0, "water should be cleared from sand cell");
+		assert_eq!(w.water_mass(1, 1, 2), 100, "water should move to z+1");
+		// Sediment: 3 - 1 = 2 remaining, displaced to z+1
+		assert_eq!(w.water_sediment[idx], 0, "sediment cleared from sand cell");
+		assert_eq!(w.water_sediment[above_idx], 2, "remaining sediment displaced to z+1");
+	}
+
+	#[test]
+	fn deposition_skips_when_above_is_solid() {
+		let mut w = World::new(4, 4, 4);
+		w.set(1, 1, 0, Tile::Stone);
+		w.set(1, 1, 2, Tile::Stone); // ceiling blocks displacement
+		w.set_water_mass(1, 1, 1, 100);
+		let idx = w.index(1, 1, 1);
+		w.water_sediment[idx] = 3;
+		w.water_outflow[idx] = 0;
+		pass_erosion(&mut w);
+		// Should NOT deposit since water has nowhere to go
+		assert!(w.get(1, 1, 1).is_air(), "should remain Air, not Sand");
+		assert_eq!(w.water_mass(1, 1, 1), 100, "water should be untouched");
+		assert_eq!(w.water_sediment[idx], 3, "sediment should be untouched");
 	}
 }

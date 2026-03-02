@@ -36,6 +36,7 @@ pub fn pass_evaporation(world: &mut World) {
 				if roll < 5 {
 					let evap = mass.min(10);
 					world.water_mass[idx] = mass - evap;
+					world.atmospheric_moisture += evap as u32;
 					if world.water_mass[idx] == 0 && world.water_sediment[idx] > 0 {
 						world.set(x, y, z, Tile::Sand);
 						world.water_sediment[idx] = 0;
@@ -82,5 +83,20 @@ mod tests {
 			assert_eq!(w.get(1, 1, 1), crate::tile::Tile::Sand);
 			assert_eq!(w.water_sediment[idx], 0);
 		}
+	}
+
+	#[test]
+	fn evaporation_feeds_atmospheric_moisture() {
+		let mut w = World::new(4, 4, 4);
+		w.set(1, 1, 0, crate::tile::Tile::Stone);
+		w.set_water_mass(1, 1, 1, 100);
+		let initial_moisture = w.atmospheric_moisture;
+		for _ in 0..200 {
+			pass_evaporation(&mut w);
+		}
+		assert!(
+			w.atmospheric_moisture > initial_moisture,
+			"Atmospheric moisture should increase from evaporation"
+		);
 	}
 }

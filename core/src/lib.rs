@@ -98,6 +98,16 @@ pub fn world_atmospheric_moisture() -> u32 {
 }
 
 #[wasm_bindgen]
+pub fn world_moisture_ptr() -> *const u8 {
+	with_world(|w| w.soil_moisture_ptr())
+}
+
+#[wasm_bindgen]
+pub fn world_moisture_len() -> usize {
+	with_world(|w| w.soil_moisture_len())
+}
+
+#[wasm_bindgen]
 pub fn tick_water() {
 	with_world_mut(|w| water::tick(w));
 }

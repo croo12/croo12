@@ -1,5 +1,22 @@
 pub mod gravity;
 
+pub(crate) const CLOUD_THRESHOLD: u32 = 10000;
+pub(crate) const CLOUD_WATER: u32 = 8000;
+pub(crate) const DROPS_PER_TICK: u32 = 5;
+pub(crate) const RAIN_MASS_PER_DROP: u8 = 5;
+pub(crate) const CLOUD_SPEED: f32 = 0.3;
+pub(crate) const MAX_CLOUDS: usize = 3;
+
+#[derive(Clone, Debug)]
+pub(crate) struct Cloud {
+	pub x: f32,
+	pub y: f32,
+	pub dx: f32,
+	pub dy: f32,
+	pub water: u32,
+	pub radius: f32,
+}
+
 use crate::tile::Tile;
 
 pub struct World {
@@ -15,6 +32,9 @@ pub struct World {
 	pub(crate) sediment_delta: Vec<i16>,
 	pub(crate) water_outflow: Vec<u16>,
 	sources: Vec<(usize, usize, usize)>,
+	pub(crate) atmospheric_moisture: u32,
+	pub(crate) clouds: Vec<Cloud>,
+	cloud_buffer: Vec<f32>,
 }
 
 impl World {
@@ -32,6 +52,9 @@ impl World {
 			sediment_delta: vec![0i16; size],
 			water_outflow: vec![0u16; size],
 			sources: Vec::new(),
+			atmospheric_moisture: 0,
+			clouds: Vec::new(),
+			cloud_buffer: Vec::new(),
 		}
 	}
 
@@ -166,6 +189,30 @@ impl World {
 	pub fn water_outflow(&self, idx: usize) -> u16 {
 		self.water_outflow[idx]
 	}
+
+	// --- Cloud / weather accessors ---
+
+	pub fn clouds_count(&self) -> usize {
+		self.clouds.len()
+	}
+
+	pub fn sync_cloud_buffer(&mut self) {
+		self.cloud_buffer.clear();
+		for c in &self.clouds {
+			self.cloud_buffer.push(c.x);
+			self.cloud_buffer.push(c.y);
+			self.cloud_buffer.push(c.radius);
+			self.cloud_buffer.push(c.water as f32);
+		}
+	}
+
+	pub fn cloud_buffer_ptr(&self) -> *const f32 {
+		self.cloud_buffer.as_ptr()
+	}
+
+	pub fn cloud_buffer_len(&self) -> usize {
+		self.cloud_buffer.len()
+	}
 }
 
 #[cfg(test)]
@@ -242,5 +289,25 @@ mod tests {
 		w.apply_water_deltas();
 		assert_eq!(w.water_mass(0, 0, 0), 255); // clamped
 		assert_eq!(w.mass_delta_ref()[idx], 0); // reset
+	}
+
+	#[test]
+	fn world_new_has_empty_weather_state() {
+		let w = World::new(4, 4, 4);
+		assert_eq!(w.atmospheric_moisture, 0);
+		assert!(w.clouds.is_empty());
+		assert_eq!(w.clouds_count(), 0);
+	}
+
+	#[test]
+	fn sync_cloud_buffer_exports_data() {
+		let mut w = World::new(4, 4, 4);
+		w.clouds.push(Cloud {
+			x: 1.5, y: 2.5, dx: 0.3, dy: 0.0,
+			water: 8000, radius: 2.5,
+		});
+		w.sync_cloud_buffer();
+		assert_eq!(w.cloud_buffer_len(), 4);
+		assert_eq!(w.clouds_count(), 1);
 	}
 }

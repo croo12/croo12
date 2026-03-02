@@ -8,7 +8,7 @@ import {
 	toScreenX,
 	toScreenY,
 } from "../lib/isometric";
-import { getTileFaces } from "../lib/tile-palette";
+import { getTileFaces, getMoistureTileFaces } from "../lib/tile-palette";
 import { useCamera } from "./use-camera";
 
 interface IsometricCanvasProps {
@@ -64,22 +64,18 @@ const drawWaterTile = (
 	ctx.globalAlpha = 1.0;
 };
 
-const drawTile = (
+const drawTileWithFaces = (
 	ctx: CanvasRenderingContext2D,
 	sx: number,
 	sy: number,
-	tileType: number,
+	faces: { top: string; left: string; right: string },
 	alpha: number,
 ): void => {
-	const faces = getTileFaces(tileType);
-	if (!faces) return;
-
 	const hw = TILE_WIDTH / 2;
 	const hh = TILE_HEIGHT / 2;
 
 	ctx.globalAlpha = alpha;
 
-	// Top face
 	ctx.fillStyle = faces.top;
 	ctx.beginPath();
 	ctx.moveTo(sx, sy - hh);
@@ -89,7 +85,6 @@ const drawTile = (
 	ctx.closePath();
 	ctx.fill();
 
-	// Left face
 	ctx.fillStyle = faces.left;
 	ctx.beginPath();
 	ctx.moveTo(sx - hw, sy);
@@ -99,7 +94,6 @@ const drawTile = (
 	ctx.closePath();
 	ctx.fill();
 
-	// Right face
 	ctx.fillStyle = faces.right;
 	ctx.beginPath();
 	ctx.moveTo(sx + hw, sy);
@@ -192,7 +186,20 @@ export const IsometricCanvas: React.FC<IsometricCanvasProps> = ({
 					const sy = toScreenY(x, y, z);
 
 					if (tileType !== TileType.Air) {
-						drawTile(ctx, sx, sy, tileType, getTileOpacity(tileType));
+						const moisture = world.getSoilMoisture(x, y, z);
+						const faces =
+							moisture > 0
+								? getMoistureTileFaces(tileType, moisture)
+								: getTileFaces(tileType);
+						if (faces) {
+							drawTileWithFaces(
+								ctx,
+								sx,
+								sy,
+								faces,
+								getTileOpacity(tileType),
+							);
+						}
 					}
 
 					// Draw water overlay

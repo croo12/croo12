@@ -20,6 +20,8 @@ import initGameCore, {
 	world_clouds_len,
 	world_clouds_count,
 	world_atmospheric_moisture,
+	world_moisture_ptr,
+	world_moisture_len,
 } from "../../../../core/build/game_core";
 
 const CANVAS_WIDTH = 800;
@@ -49,7 +51,14 @@ export const GamePage: React.FC = () => {
 		const waterPtr = world_water_ptr();
 		const waterLen = world_water_len();
 		const water = new Uint8Array(wasmOutput.memory.buffer, waterPtr, waterLen);
-		return new WorldData(w, d, h, tiles, water);
+		const moisturePtr = world_moisture_ptr();
+		const moistureLen = world_moisture_len();
+		const moisture = new Uint8Array(
+			wasmOutput.memory.buffer,
+			moisturePtr,
+			moistureLen,
+		);
+		return new WorldData(w, d, h, tiles, water, moisture);
 	}, [isSuccess, wasmOutput]);
 
 	useEffect(() => {
@@ -66,7 +75,14 @@ export const GamePage: React.FC = () => {
 				waterPtr,
 				waterLen,
 			);
-			world.updateTiles(tiles, water);
+			const moisturePtr = world_moisture_ptr();
+			const moistureLen = world_moisture_len();
+			const moisture = new Uint8Array(
+				wasmOutput.memory.buffer,
+				moisturePtr,
+				moistureLen,
+			);
+			world.updateTiles(tiles, water, moisture);
 
 			const cloudsCount = world_clouds_count();
 			const cloudsPtr = world_clouds_ptr();
@@ -76,8 +92,8 @@ export const GamePage: React.FC = () => {
 				cloudsPtr,
 				cloudsLen,
 			);
-			const moisture = world_atmospheric_moisture();
-			world.updateClouds(cloudBuffer, cloudsCount, moisture);
+			const atmosMoisture = world_atmospheric_moisture();
+			world.updateClouds(cloudBuffer, cloudsCount, atmosMoisture);
 		}, TICK_INTERVAL_MS);
 		return () => clearInterval(interval);
 	}, [wasmOutput, world]);

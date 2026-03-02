@@ -16,6 +16,7 @@ export class WorldData {
 	readonly height: number;
 	private tiles: Uint8Array;
 	private water: Uint8Array;
+	private moisture: Uint8Array;
 	private _clouds: CloudData[] = [];
 	private _atmosphericMoisture = 0;
 
@@ -25,12 +26,14 @@ export class WorldData {
 		height: number,
 		tiles: Uint8Array,
 		water: Uint8Array,
+		moisture: Uint8Array,
 	) {
 		this.width = width;
 		this.depth = depth;
 		this.height = height;
 		this.tiles = new Uint8Array(tiles);
 		this.water = new Uint8Array(water);
+		this.moisture = new Uint8Array(moisture);
 	}
 
 	private index(x: number, y: number, z: number): number {
@@ -53,9 +56,18 @@ export class WorldData {
 		return this._atmosphericMoisture;
 	}
 
-	updateTiles(tiles: Uint8Array, water: Uint8Array): void {
+	getSoilMoisture(x: number, y: number, z: number): number {
+		return this.moisture[this.index(x, y, z)];
+	}
+
+	updateTiles(
+		tiles: Uint8Array,
+		water: Uint8Array,
+		moisture: Uint8Array,
+	): void {
 		this.tiles = new Uint8Array(tiles);
 		this.water = new Uint8Array(water);
+		this.moisture = new Uint8Array(moisture);
 	}
 
 	updateClouds(
